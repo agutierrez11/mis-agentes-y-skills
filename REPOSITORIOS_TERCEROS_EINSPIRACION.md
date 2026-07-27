@@ -44,6 +44,10 @@
 - **¿Qué es?:** Visualizador interactivo de arquitectura de código que genera grafos de dependencias y calcula el "radio de impacto" de un cambio.
 - **Idea tomada:** Visualización gráfica de la arquitectura de tus proyectos.
 
+### 11. `fuadmefleh/Shared-Claude-Chats`
+- **¿Qué es?:** Archivo comprimido con +1,000 conversaciones reales raspadas de enlaces públicos de Claude.
+- **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
+
 ### 12. `hkuds/lightrag`
 - **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
 - **¿Nos sirve?:** **SÍ.** Es la mejor arquitectura para conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
