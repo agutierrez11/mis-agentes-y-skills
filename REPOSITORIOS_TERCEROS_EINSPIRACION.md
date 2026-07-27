@@ -44,9 +44,13 @@
 - **¿Qué es?:** Visualizador interactivo de arquitectura de código que genera grafos de dependencias y calcula el "radio de impacto" de un cambio.
 - **Idea tomada:** Visualización gráfica de la arquitectura de tus proyectos.
 
-### 11. `fuadmefleh/Shared-Claude-Chats`
-- **¿Qué es?:** Archivo comprimido con +1,000 conversaciones reales raspadas de enlaces públicos de Claude.
-- **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
+### 12. `hkuds/lightrag`
+- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
+- **¿Nos sirve?:** **SÍ.** Es la mejor arquitectura para conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
+
+### 13. `karpathy/llm-council`
+- **¿Qué es?:** Arquitectura de deliberación entre múltiples LLMs desarrollada por Andrej Karpathy. Hace que varios modelos emitan respuestas independientes, revisen anónimamente el trabajo de los demás y un "Chairman" sintetice el consenso final.
+- **¿Nos sirve?:** **SÍ.** Es la estructura ideal para auditar los pitches de venta o evaluar de forma ciega las respuestas del Copiloto CPS para evitar sesgos o alucinaciones.
 
 ---
 *Documento de referencia guardado en tu espacio de trabajo para consultar cualquier idea original.*
