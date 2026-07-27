@@ -52,5 +52,9 @@
 - **¿Qué es?:** Arquitectura de deliberación entre múltiples LLMs desarrollada por Andrej Karpathy. Hace que varios modelos emitan respuestas independientes, revisen anónimamente el trabajo de los demás y un "Chairman" sintetice el consenso final.
 - **¿Nos sirve?:** **SÍ.** Es la estructura ideal para auditar los pitches de venta o evaluar de forma ciega las respuestas del Copiloto CPS para evitar sesgos o alucinaciones.
 
+### 14. `dmtrKovalenko/date-io`
+- **¿Qué es?:** Una capa de abstracción unificada para bibliotecas de fechas en JavaScript (date-fns, Day.js, Luxon, Moment.js). Permite construir componentes de calendarios y fechas que funcionan con cualquier librería sin atarse a una sola.
+- **¿Nos sirve?:** **SÍ (Para UI/Frontend).** Útil si construimos tableros de control con calendarios de prospección, agendas de citas o filtros de fechas para que no se rompan si cambiamos de librería de fechas en el futuro.
+
 ---
 *Documento de referencia guardado en tu espacio de trabajo para consultar cualquier idea original.*
