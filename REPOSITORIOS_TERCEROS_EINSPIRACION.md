@@ -58,6 +58,11 @@
 
 ### 14. `dmtrKovalenko/date-io`
 - **¿Qué es?:** Una capa de abstracción unificada para bibliotecas de fechas en JavaScript (date-fns, Day.js, Luxon, Moment.js). Permite construir componentes de calendarios y fechas que funcionan con cualquier librería sin atarse a una sola.
+
+### 15. `rohitg00/ai-engineering-from-scratch`
+- **¿Qué es?:** Currículum abierto en 20 fases y +400 lecciones para aprender e implementar ingeniería de IA desde cero (matemáticas, transformers, LLMs, agents y multi-agent swarms).
+- **Idea tomada:** Creamos la skill `ai-engineering-from-scratch` para guiar a la célula de agentes en la construcción y evaluación de arquitecturas de IA deterministas y sin sesgo.
+
 - **¿Nos sirve?:** **SÍ (Para UI/Frontend).** Útil si construimos tableros de control con calendarios de prospección, agendas de citas o filtros de fechas para que no se rompan si cambiamos de librería de fechas en el futuro.
 
 ---
