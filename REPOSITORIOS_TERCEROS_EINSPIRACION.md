@@ -112,7 +112,9 @@
 - **¿Qué es?:** El motor de inferencia de alto rendimiento desarrollado por Baidu/PaddlePaddle diseñado para optimizar redes neuronales profundas en hardware heterogéneo (NVIDIA GPUs, ARM, x86). Ejecuta fusión de operadores (Operator Fusion) y gestión de memoria ultra-eficiente para reducir la latencia de respuesta a milisegundos.
 - **Idea tomada:** La arquitectura de **fusión de operadores y memoria ultrarrápida** para despliegue de microservicios de IA en hardware limitado (optimización de recursos).
 
+### 28. `hyperfield/ai-file-sorter`
+- **¿Qué es?:** Aplicación de escritorio multiplataforma (Windows/macOS/Linux) para organización, categorización y renombrado automático de archivos, imágenes y documentos usando LLMs de visión/texto locales (Gemma 3 4B GGUF) o remotos.
+- **Idea tomada:** Excelente referencia técnica para implementar la **clasificación automática de expedientes digitales de crédito (INE, comprobantes de domicilio, estados de cuenta)** sin subir datos a servidores externos, garantizando cumplimiento de privacidad CNBV.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 27 repositorios de clase mundial.*
-
-
+*Catálogo maestro de inspiración agéntica consolidado con 28 repositorios de clase mundial.*
