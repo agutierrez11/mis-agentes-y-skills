@@ -116,5 +116,14 @@
 - **¿Qué es?:** Aplicación de escritorio multiplataforma (Windows/macOS/Linux) para organización, categorización y renombrado automático de archivos, imágenes y documentos usando LLMs de visión/texto locales (Gemma 3 4B GGUF) o remotos.
 - **Idea tomada:** Excelente referencia técnica para implementar la **clasificación automática de expedientes digitales de crédito (INE, comprobantes de domicilio, estados de cuenta)** sin subir datos a servidores externos, garantizando cumplimiento de privacidad CNBV.
 
+### 29. `semgrep/semgrep`
+- **¿Qué es?:** Herramienta open-source líder de análisis estático de código (SAST) y "semantic grep". A diferencia del regex convencional, comprende la estructura semántica del código para auditar vulnerabilidades, fallas de seguridad y patrones de arquitectura en +30 lenguajes.
+- **Idea tomada:** La integración de **reglas semánticas avanzadas en nuestro flujo CI/CD** para validar automáticamente que ningún código rompa estándares de privacidad, seguridad o arquitectura antes de cada despliegue.
+
+### 30. `aisa-one / aisa-skills` (AIsa.one)
+- **¿Qué es?:** Plataforma y marketplace de habilidades (Skills CLI) y red unificada de capacidades para agentes de IA. Permite conectar agentes a APIs sociales (X, Reddit, Instagram), modelos LLM y herramientas externas mediante un CLI unificado (`@aisa-one/cli`) y pagos por uso.
+- **Idea tomada:** La arquitectura de **CLI de gestión de Skills y Marketplace de Habilidades** para expandir dinámicamente las capacidades de los agentes en tiempo de ejecución.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 28 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 30 repositorios de clase mundial.*
+
