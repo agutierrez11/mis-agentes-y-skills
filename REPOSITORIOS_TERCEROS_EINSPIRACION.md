@@ -144,8 +144,13 @@
 - **¿Qué es?:** Framework agéntico de investigación OSINT impulsado por IA. Ofrece un REPL interactivo (estilo Claude Code), CLI directo y un **servidor MCP nativo** que conecta 19 herramientas de investigación a clientes como Cursor o Claude Desktop, evitando alucinaciones mediante llamadas a herramientas de ejecución real.
 - **Idea tomada:** La arquitectura de **servidor MCP de OSINT con encadenamiento de herramientas autónomo** para investigación profunda de empresas, dominios y ejecutivos.
 
+### 36. `SantanderAI/gen-fraud-graph` (Banco Santander Oficial)
+- **¿Qué es?:** La herramienta open-source oficial desarrollada por la división de IA de **Banco Santander** (`SantanderAI`). Genera grafos sintéticos masivos de transacciones bancarias (desde 1K hasta +100M de cuentas) inyectando patrones reales de **lavado de dinero (anillos cíclicos) y fraudes financieros (estructuración, BEC, mulas)** con vectores de embeddings para bases de datos de grafos (Neo4j, AWS Neptune) o Redes Neuronales de Grafos (GNNs).
+- **Idea tomada:** La metodología oficial de **Banco Santander para simulación de transacciones, detección de lavado de dinero (AML) y entrenamiento de GNNs** en infraestructuras de pagos.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 35 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 36 repositorios de clase mundial.*
+
 
 
 
