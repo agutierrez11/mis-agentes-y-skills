@@ -28,9 +28,11 @@ Bienvenido al espacio de trabajo enfocado en la estrategia comercial, arquitectu
 - 📊 **[data/sofomes_arrendadoras_mx.csv](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/data/sofomes_arrendadoras_mx.csv)** — Base de datos calificada de SOFOMes y Arrendadoras en México con contactos clave y estado en el funnel.
 - ⚔️ **[MATRIZ_COMPETITIVA_Y_BATTLECARDS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/MATRIZ_COMPETITIVA_Y_BATTLECARDS.md)** — Matriz exhaustiva de los 3 segmentos (Onboarding/KYC, Cores Internacionales y Cores Locales) con Battlecards de desplazamiento para AEs.
 - 📊 **[DECK_COMPETENCIA_SLIDES.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/DECK_COMPETENCIA_SLIDES.md)** — Deck corto de 5 diapositivas ejecutivas listo para presentar (McKinsey SCQA) alimentado por la matriz CSV.
-- 🕶️ **[PLAYBOOK_ROL_AE_BLACK_OPS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/PLAYBOOK_ROL_AE_BLACK_OPS.md)** — Propuesta pragmática del rol de AE: pitch en 2 capas, 5 tácticas de targeting individual y mapa de deficiencias objetivas.
-- 🧠 **[MATRIZ_COMPARATIVA_RESPUESTAS_LLM.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/MATRIZ_COMPARATIVA_RESPUESTAS_LLM.md)** — Comparativa analítica de los aportes estratégicos de Claude, Perplexity y Kimi para la llamada con Luis.
-- ⚙️ **[.agents/AGENTS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/intelligential/.agents/AGENTS.md)** — Reglas del agente e instrucciones de RevOps / MEDDIC.
+- 🕶️ **[PLAYBOOK_ROL_AE_BLACK_OPS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/mis-agentes-y-skills/inteligencia-comercial-b2b/PLAYBOOK_ROL_AE_BLACK_OPS.md)** — Propuesta pragmática del rol de AE: pitch en 2 capas, 5 tácticas de targeting individual y mapa de deficiencias objetivas.
+- 🧠 **[MATRIZ_COMPARATIVA_RESPUESTAS_LLM.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/mis-agentes-y-skills/inteligencia-comercial-b2b/MATRIZ_COMPARATIVA_RESPUESTAS_LLM.md)** — Comparativa analítica de los aportes estratégicos de Claude, Perplexity y Kimi para la llamada con Luis.
+- 🛡️ **[OPERACION_MOAT_Y_ESCALA_MANUS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/mis-agentes-y-skills/inteligencia-comercial-b2b/OPERACION_MOAT_Y_ESCALA_MANUS.md)** — Documento estratégico de Manus sobre Golden Handcuffs, Dashboard RevOps (Unit Economics) y diseño de categoría OS.
+- ⚙️ **[.agents/AGENTS.md](file:///c:/Users/Antonio/.gemini/antigravity-ide/scratch/mis-agentes-y-skills/inteligencia-comercial-b2b/.agents/AGENTS.md)** — Reglas del agente e instrucciones de RevOps / MEDDIC.
 
 ---
 *Estructurado para la Célula de Agentes Globales de Antonio Gutiérrez.*
+
