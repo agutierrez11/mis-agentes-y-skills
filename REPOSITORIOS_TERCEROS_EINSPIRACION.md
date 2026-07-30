@@ -50,15 +50,27 @@
 
 ### 12. `hkuds/lightrag`
 - **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
-- **¿Nos sirve?:** **SÍ.** Es la mejor arquitectura para conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
+- **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
 
 ### 13. `karpathy/llm-council`
 - **¿Qué es?:** Arquitectura de deliberación entre múltiples LLMs desarrollada por Andrej Karpathy. Hace que varios modelos emitan respuestas independientes, revisen anónimamente el trabajo de los demás y un "Chairman" sintetice el consenso final.
-- **¿Nos sirve?:** **SÍ.** Es la estructura ideal para auditar los pitches de venta o evaluar de forma ciega las respuestas del Copiloto CPS para evitar sesgos o alucinaciones.
+- **Idea tomada:** Creamos la skill `llm-council` para deliberación ciega multi-modelo.
 
-### 14. `dmtrKovalenko/date-io`
-- **¿Qué es?:** Una capa de abstracción unificada para bibliotecas de fechas en JavaScript (date-fns, Day.js, Luxon, Moment.js). Permite construir componentes de calendarios y fechas que funcionan con cualquier librería sin atarse a una sola.
-- **¿Nos sirve?:** **SÍ (Para UI/Frontend).** Útil si construimos tableros de control con calendarios de prospección, agendas de citas o filtros de fechas para que no se rompan si cambiamos de librería de fechas en el futuro.
+### 14. `Hainrixz/abogado-del-diablo` & `brandonsimpson/devils-advocate`
+- **¿Qué es?:** Revisiones adversarias implacables de arquitectura, código y propuestas de negocio.
+- **Idea tomada:** Creamos las skills `abogado-del-diablo` y `devils-advocate-code`.
+
+### 15. `NVIDIA/skills` & `NVIDIA/NIM`
+- **¿Qué es?:** Catálogo oficial de 40+ skills de aceleración en GPU, datos sintéticos y optimización numérica (cuDF, cuOpt, NeMo, Data Designer).
+- **Idea tomada:** Instalamos e integramos las skills oficiales de NVIDIA para aceleración de datos.
+
+### 16. `ruvnet/ruflo` (antes Claude Flow)
+- **¿Qué es?:** Meta-harness para asistentes de código que agrega capa de auto-aprendizaje (Self-Learning), enjambres (swarms) y memoria federada persistente en Rust (RuVector).
+- **Idea tomada:** Arquitectura de auto-aprendizaje e integración enjambre de agentes en IDE.
+
+### 17. `Agent-Field/agentfield`
+- **¿Qué es?:** Control Plane de microservicios agénticos para convertir agentes en endpoints REST containerizados en Docker con escalabilidad masiva.
+- **Idea tomada:** Despliegue de bots y scrapers masivos como microservicios en Docker/Render.
 
 ---
-*Documento de referencia guardado en tu espacio de trabajo para consultar cualquier idea original.*
+*Catálogo maestro de inspiración agéntica actualizado y guardado en tu espacio de trabajo.*
