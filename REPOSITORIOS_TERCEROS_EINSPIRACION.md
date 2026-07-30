@@ -49,7 +49,7 @@
 - **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
 
 ### 12. `hkuds/lightrag`
-- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
+- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextually profundas.
 - **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
 
 ### 13. `karpathy/llm-council`
@@ -84,7 +84,11 @@
 - **¿Qué es?:** Sistema de reconocimiento automático de voz (ASR) de alta precisión para transcripción y traducción en más de 99 idiomas.
 - **Idea tomada:** Creamos la skill `claude-video-analyzer` para transcripción automática de audio de webinars y demos de venta.
 
-### 21. `dmtrKovalenko/date-io`
+### 21. `github/spec-kit` (Specify CLI)
+- **¿Qué es?:** Kit oficial de GitHub para **Spec-Driven Development (Desarrollo Guiado por Especificaciones)**. Convierte las especificaciones de diseño en código ejecutable con una secuencia de 5 fases (`constitution` → `specify` → `plan` → `tasks` → `implement`).
+- **Idea tomada:** Adoptamos la metodología de arquitectura ejecutable en 5 pasos donde la especificación no es un PDF estático, sino la fuente primaria que genera y prueba el código automáticamente.
+
+### 22. `dmtrKovalenko/date-io`
 - **¿Qué es?:** Capa de abstracción para bibliotecas de fechas en JavaScript.
 - **Idea tomada:** Componentes de calendario agnósticos a la librería de fechas.
 
