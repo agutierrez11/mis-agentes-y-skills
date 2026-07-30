@@ -104,5 +104,10 @@
 - **¿Qué es?:** Capa de abstracción para bibliotecas de fechas en JavaScript.
 - **Idea tomada:** Componentes de calendario agnósticos a la librería de fechas.
 
+### 26. `midday-ai/midday`
+- **¿Qué es?:** La plataforma de inteligencia financiera Open-Source y copiloto operativo para ejecutivos y PYMEs (Financial Operating System for Founders). Integra sincronización bancaria, coincidencia de facturas/recibos con IA, monitoreo de flujo de caja (Burn Rate / Runway) y asistente agéntico de finanzas con soporte de voz y comandos.
+- **Idea tomada:** La arquitectura del **Copiloto Financiero con IA**, categorización automática de transacciones y conciliación de bancarios/facturas en tiempo real sin intervención humana.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado y libre de conflictos.*
+*Catálogo maestro de inspiración agéntica consolidado con 26 repositorios de clase mundial.*
+
