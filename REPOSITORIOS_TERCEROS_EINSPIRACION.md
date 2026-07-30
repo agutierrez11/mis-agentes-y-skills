@@ -4,91 +4,103 @@
 
 ---
 
-### 1. `heygen-com/hyperframes`
-- **¿Qué es?:** Motor de generación de video MP4 determinista basado en HTML, CSS y SVG.
-- **Idea tomada:** Creamos la skill `video-hyperframes-producer` para generar videos y GIFs de presentación B2B usando renderizado web puro sin editores de video pesados.
+### 1. `different-ai/openwork`
+- **¿Qué es?:** Aplicación nativa de escritorio local-first (GUI agéntica) desarrollada por Different AI como alternativa libre a Claude Cowork. Envuelve terminales de agentes en una interfaz visual limpia y segura con sistema de permisos.
+- **Idea tomada:** La arquitectura visual de GUI agéntica local con sistema de alertas de permisos para ver el progreso de los agentes sin atarse a terminales oscuras.
 
-### 2. `corebunch/instatic`
+### 2. `kawsarlog/social-media-apis`
+- **¿Qué es?:** Índice enfocado con más de **10,944 APIs preparadas para producción** enfocadas en redes sociales, perfiles, publicación y engagement.
+- **Idea tomada:** Catálogo de referencia directa de APIs para automatizar prospección, publicaciones y monitoreo de marca en redes sociales (LinkedIn, Twitter, WhatsApp).
+
+### 3. `fathah/hermes-desktop`
+- **¿Qué es?:** Aplicación de escritorio nativa para el agente Hermes (Nous Research), un asistente con bucle cerrado de aprendizaje (closed learning loop), gestión de memoria, perfiles, habilidades y pasarelas de mensajería multi-plataforma.
+- **Idea tomada:** El patrón de **bucle cerrado de auto-aprendizaje (closed learning loop)** y la interfaz unificada para gestionar sesiones, perfiles y pasarelas de comunicación.
+
+### 4. `heygen-com/hyperframes`
+- **¿Qué es?:** Motor de generación de video MP4 determinista basado en HTML, CSS y SVG.
+- **Idea tomada:** Creamos la skill `video-hyperframes-producer` para generar videos y GIFs de presentación B2B usando renderizado web puro.
+
+### 5. `corebunch/instatic`
 - **¿Qué es?:** Framework y arquitectura para construir sitios estáticos agénticos ultra-rápidos con cero runtime.
 - **Idea tomada:** Creamos la skill `agentic-cms-architect` para estructurar landing pages de alta velocidad.
 
-### 3. `lightpanda-io/browser`
+### 6. `lightpanda-io/browser`
 - **¿Qué es?:** Navegador headless ultra-ligero escrito en Zig (consume sólo 15MB de RAM).
 - **Idea tomada:** Creamos la skill `lightpanda-scraping-specialist` para scraping masivo de SOFOMes sin saturar la memoria.
 
-### 4. `AnmolSaini16/mapcn`
+### 7. `AnmolSaini16/mapcn`
 - **¿Qué es?:** Componentes de mapas vectoriales e inteligencia geográfica usando MapLibre GL y TailwindCSS.
-- **Idea tomada:** Creamos la skill `mapcn-gis-specialist` para visualizar prospectos en mapas por región (ej. Riviera Maya, MTY, CDMX).
+- **Idea tomada:** Creamos la skill `mapcn-gis-specialist` para visualizar prospectos en mapas por región.
 
-### 5. `Finnhub-Stock-API/finnhub-python`
+### 8. `Finnhub-Stock-API/finnhub-python`
 - **¿Qué es?:** SDK oficial en Python para datos financieros y bursátiles en tiempo real.
 - **Idea tomada:** Evaluación de datos financieros para scoring de empresas.
 
-### 6. `leantime/leantime` & `Leantime/docker-leantime`
+### 9. `leantime/leantime` & `Leantime/docker-leantime`
 - **¿Qué es?:** Sistema gestor de proyectos Open-Source diseñado para personas con **TDAH, Autismo y Dislexia** (Kanban, Gantt, SWOT, Lean Canvas, rastreo de metas).
-- **Idea tomada:** El paradigma de **reducir carga cognitiva**, dashboards por nivel de dopamina y la vista unificada para no perder el contexto entre múltiples proyectos.
+- **Idea tomada:** Inspiró la creación de nuestro **Tablero Unificado Vixiees (`tablero_vixiees.html`)** para visibilidad total de proyectos y skills reduciendo la carga cognitiva.
 
-### 7. `penecho/penecho`
+### 10. `penecho/penecho`
 - **¿Qué es?:** Lienzo espacial infinito (20,000 x 20,000 px) para pensar con dibujos y bocetos interactivos con IA.
 - **Idea tomada:** Mapas mentales interactivos para bajar ideas complejas a tierra.
 
-### 8. `anthropics/knowledge-work-plugins`
-- **¿Qué es?:** Repositorio oficial de Anthropic con plugins y skills prediseñadas para trabajadores del conocimiento (Notion, Slack, Jira).
+### 11. `anthropics/knowledge-work-plugins`
+- **¿Qué es?:** Repositorio oficial de Anthropic con plugins y skills prediseñadas para trabajadores del conocimiento.
 - **Idea tomada:** Patrones de habilidades e integración MCP para conectar agentes a herramientas de trabajo.
 
-### 9. `jangles-byte/Pythia`
-- **¿Qué es?:** Motor oráculo local de inteligencia de mercado que fusiona feeds en vivo (Osiris) y un motor de simulación de enjambre (MiroFish) con un consejo de 4 especialistas.
+### 12. `jangles-byte/Pythia`
+- **¿Qué es?:** Motor oráculo local de inteligencia de mercado que fusiona feeds en vivo (Osiris) y simulación de enjambre (MiroFish).
 - **Idea tomada:** La lógica de razonamiento en tiempo real para predecir riesgos regulatorios o financieros en SOFOMes.
 
-### 10. `braedonsaunders/codeflow`
-- **¿Qué es?:** Visualizador interactivo de arquitectura de código que genera grafos de dependencias y calcula el "radio de impacto" de un cambio.
+### 13. `braedonsaunders/codeflow`
+- **¿Qué es?:** Visualizador interactivo de arquitectura de código que genera grafos de dependencias.
 - **Idea tomada:** Visualización gráfica de la arquitectura de tus proyectos.
 
-### 11. `fuadmefleh/Shared-Claude-Chats`
-- **¿Qué es?:** Archivo comprimido con +1,000 conversaciones reales raspadas de enlaces públicos de Claude.
-- **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
+### 14. `fuadmefleh/Shared-Claude-Chats`
+- **¿Qué es?:** Archivo comprimido con +1,000 conversaciones reales de Claude.
+- **Idea tomada:** Dataset de referencia para estudiar prompts avanzados.
 
-### 12. `hkuds/lightrag`
-- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextually profundas.
-- **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
+### 15. `hkuds/lightrag`
+- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG).
+- **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos.
 
-### 13. `karpathy/llm-council`
-- **¿Qué es?:** Arquitectura de deliberación entre múltiples LLMs desarrollada por Andrej Karpathy. Hace que varios modelos emitan respuestas independientes, revisen anónimamente el trabajo de los demás y un "Chairman" sintetice el consenso final.
+### 16. `karpathy/llm-council`
+- **¿Qué es?:** Arquitectura de deliberación entre múltiples LLMs desarrollada por Andrej Karpathy.
 - **Idea tomada:** Creamos la skill `llm-council` para deliberación ciega multi-modelo.
 
-### 14. `Hainrixz/abogado-del-diablo` & `brandonsimpson/devils-advocate`
+### 17. `Hainrixz/abogado-del-diablo` & `brandonsimpson/devils-advocate`
 - **¿Qué es?:** Revisiones adversarias implacables de arquitectura, código y propuestas de negocio.
 - **Idea tomada:** Creamos las skills `abogado-del-diablo` y `devils-advocate-code`.
 
-### 15. `rohitg00/ai-engineering-from-scratch`
-- **¿Qué es?:** Currículum abierto en 20 fases y +400 lecciones para aprender e implementar ingeniería de IA desde cero.
-- **Idea tomada:** Creamos la skill `ai-engineering-from-scratch` para guiar la construcción y evaluación de arquitecturas de IA.
+### 18. `rohitg00/ai-engineering-from-scratch`
+- **¿Qué es?:** Currículum abierto en 20 fases para aprender e implementar ingeniería de IA desde cero.
+- **Idea tomada:** Creamos la skill `ai-engineering-from-scratch` para evaluar arquitecturas de IA.
 
-### 16. `NVIDIA/skills` & `NVIDIA/NIM`
-- **¿Qué es?:** Catálogo oficial de 40+ skills de aceleración en GPU, datos sintéticos y optimización numérica (cuDF, cuOpt, NeMo, Data Designer).
+### 19. `NVIDIA/skills` & `NVIDIA/NIM`
+- **¿Qué es?:** Catálogo oficial de 40+ skills de aceleración en GPU, datos sintéticos y optimización numérica.
 - **Idea tomada:** Instalamos e integramos las skills oficiales de NVIDIA para aceleración de datos.
 
-### 17. `ruvnet/ruflo` (antes Claude Flow)
-- **¿Qué es?:** Meta-harness para asistentes de código que agrega capa de auto-aprendizaje (Self-Learning), enjambres (swarms) y memoria federada persistente en Rust (RuVector).
+### 20. `ruvnet/ruflo` (antes Claude Flow)
+- **¿Qué es?:** Meta-harness para asistentes de código con capa de auto-aprendizaje y memoria federada persistente en Rust (RuVector).
 - **Idea tomada:** Arquitectura de auto-aprendizaje e integración enjambre de agentes en IDE.
 
-### 18. `Agent-Field/agentfield`
-- **¿Qué es?:** Control Plane de microservicios agénticos para convertir agentes en endpoints REST containerizados en Docker con escalabilidad masiva.
+### 21. `Agent-Field/agentfield`
+- **¿Qué es?:** Control Plane de microservicios agénticos para convertir agentes en endpoints REST containerizados en Docker.
 - **Idea tomada:** Despliegue de bots y scrapers masivos como microservicios en Docker/Render.
 
-### 19. `mervinpraison/PraisonAI`
-- **¿Qué es?:** Framework de orquestación de fuerza laboral agéntica 24/7 (AgentFlow) compatible con protocolo MCP y despliegue rápido en 5 líneas de código.
+### 22. `mervinpraison/PraisonAI`
+- **¿Qué es?:** Framework de orquestación de fuerza laboral agéntica 24/7 (AgentFlow) compatible con protocolo MCP.
 - **Idea tomada:** Integración de flujos multi-agente persistentes e interactivos.
 
-### 20. `openai/whisper`
-- **¿Qué es?:** Sistema de reconocimiento automático de voz (ASR) de alta precisión para transcripción y traducción en más de 99 idiomas.
-- **Idea tomada:** Creamos la skill `claude-video-analyzer` para transcripción automática de audio de webinars y demos de venta.
+### 23. `openai/whisper`
+- **¿Qué es?:** Sistema de reconocimiento automático de voz (ASR) para transcripción y traducción en más de 99 idiomas.
+- **Idea tomada:** Transcripción automática de audio de webinars y demos de venta en la skill `claude-video-analyzer`.
 
-### 21. `github/spec-kit` (Specify CLI)
-- **¿Qué es?:** Kit oficial de GitHub para **Spec-Driven Development (Desarrollo Guiado por Especificaciones)**. Convierte las especificaciones de diseño en código ejecutable con una secuencia de 5 fases (`constitution` → `specify` → `plan` → `tasks` → `implement`).
-- **Idea tomada:** Adoptamos la metodología de arquitectura ejecutable en 5 pasos donde la especificación no es un PDF estático, sino la fuente primaria que genera y prueba el código automáticamente.
+### 24. `github/spec-kit` (Specify CLI)
+- **¿Qué es?:** Kit oficial de GitHub para **Spec-Driven Development**. Convierte especificaciones en código ejecutable.
+- **Idea tomada:** Metodología de arquitectura ejecutable en 5 pasos.
 
-### 22. `dmtrKovalenko/date-io`
+### 25. `dmtrKovalenko/date-io`
 - **¿Qué es?:** Capa de abstracción para bibliotecas de fechas en JavaScript.
 - **Idea tomada:** Componentes de calendario agnósticos a la librería de fechas.
 
