@@ -49,7 +49,7 @@
 - **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
 
 ### 12. `hkuds/lightrag`
-- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
+- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextually profundas.
 - **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
 
 ### 13. `karpathy/llm-council`
@@ -60,17 +60,25 @@
 - **¿Qué es?:** Revisiones adversarias implacables de arquitectura, código y propuestas de negocio.
 - **Idea tomada:** Creamos las skills `abogado-del-diablo` y `devils-advocate-code`.
 
-### 15. `NVIDIA/skills` & `NVIDIA/NIM`
+### 15. `rohitg00/ai-engineering-from-scratch`
+- **¿Qué es?:** Currículum abierto en 20 fases y +400 lecciones para aprender e implementar ingeniería de IA desde cero.
+- **Idea tomada:** Creamos la skill `ai-engineering-from-scratch` para guiar la construcción y evaluación de arquitecturas de IA.
+
+### 16. `NVIDIA/skills` & `NVIDIA/NIM`
 - **¿Qué es?:** Catálogo oficial de 40+ skills de aceleración en GPU, datos sintéticos y optimización numérica (cuDF, cuOpt, NeMo, Data Designer).
 - **Idea tomada:** Instalamos e integramos las skills oficiales de NVIDIA para aceleración de datos.
 
-### 16. `ruvnet/ruflo` (antes Claude Flow)
+### 17. `ruvnet/ruflo` (antes Claude Flow)
 - **¿Qué es?:** Meta-harness para asistentes de código que agrega capa de auto-aprendizaje (Self-Learning), enjambres (swarms) y memoria federada persistente en Rust (RuVector).
 - **Idea tomada:** Arquitectura de auto-aprendizaje e integración enjambre de agentes en IDE.
 
-### 17. `Agent-Field/agentfield`
+### 18. `Agent-Field/agentfield`
 - **¿Qué es?:** Control Plane de microservicios agénticos para convertir agentes en endpoints REST containerizados en Docker con escalabilidad masiva.
 - **Idea tomada:** Despliegue de bots y scrapers masivos como microservicios en Docker/Render.
 
+### 19. `dmtrKovalenko/date-io`
+- **¿Qué es?:** Capa de abstracción para bibliotecas de fechas en JavaScript.
+- **Idea tomada:** Componentes de calendario agnósticos a la librería de fechas.
+
 ---
-*Catálogo maestro de inspiración agéntica actualizado y guardado en tu espacio de trabajo.*
+*Catálogo maestro de inspiración agéntica consolidado y libre de conflictos.*
