@@ -24,8 +24,8 @@
 - **¿Qué es?:** SDK oficial en Python para datos financieros y bursátiles en tiempo real.
 - **Idea tomada:** Evaluación de datos financieros para scoring de empresas.
 
-### 6. `leantime/leantime`
-- **¿Qué es?:** Sistema gestor de proyectos Open-Source diseñado para personas con **TDAH, Autismo y Dislexia**.
+### 6. `leantime/leantime` & `Leantime/docker-leantime`
+- **¿Qué es?:** Sistema gestor de proyectos Open-Source diseñado para personas con **TDAH, Autismo y Dislexia** (Kanban, Gantt, SWOT, Lean Canvas, rastreo de metas).
 - **Idea tomada:** El paradigma de **reducir carga cognitiva**, dashboards por nivel de dopamina y la vista unificada para no perder el contexto entre múltiples proyectos.
 
 ### 7. `penecho/penecho`
@@ -49,7 +49,7 @@
 - **Idea tomada:** Dataset de referencia para estudiar prompts avanzados y afinar las respuestas de tu agente CPS.
 
 ### 12. `hkuds/lightrag`
-- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextually profundas.
+- **¿Qué es?:** Framework de RAG mejorado con Grafos de Conocimiento (Knowledge Graph RAG). Combina vectores planos con grafos entidad-relación para búsquedas rápidas y contextualmente profundas.
 - **Idea tomada:** Conectar la regulación CNBV/SAT con las 1,113 SOFOMes de tu base de datos sin depender de bases de datos vectoriales caras.
 
 ### 13. `karpathy/llm-council`
@@ -76,7 +76,15 @@
 - **¿Qué es?:** Control Plane de microservicios agénticos para convertir agentes en endpoints REST containerizados en Docker con escalabilidad masiva.
 - **Idea tomada:** Despliegue de bots y scrapers masivos como microservicios en Docker/Render.
 
-### 19. `dmtrKovalenko/date-io`
+### 19. `mervinpraison/PraisonAI`
+- **¿Qué es?:** Framework de orquestación de fuerza laboral agéntica 24/7 (AgentFlow) compatible con protocolo MCP y despliegue rápido en 5 líneas de código.
+- **Idea tomada:** Integración de flujos multi-agente persistentes e interactivos.
+
+### 20. `openai/whisper`
+- **¿Qué es?:** Sistema de reconocimiento automático de voz (ASR) de alta precisión para transcripción y traducción en más de 99 idiomas.
+- **Idea tomada:** Creamos la skill `claude-video-analyzer` para transcripción automática de audio de webinars y demos de venta.
+
+### 21. `dmtrKovalenko/date-io`
 - **¿Qué es?:** Capa de abstracción para bibliotecas de fechas en JavaScript.
 - **Idea tomada:** Componentes de calendario agnósticos a la librería de fechas.
 
