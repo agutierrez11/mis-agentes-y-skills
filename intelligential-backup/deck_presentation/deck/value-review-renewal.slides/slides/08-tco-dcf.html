@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intelligential — Diapositiva 02: Comparativa de TCO vs DynamiCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin:0; padding:0; }
+    body { background:#F8FAFC; color:#0F172A; font-family:'Outfit',sans-serif; min-height:100vh; display:flex; flex-direction:column; }
+    .mono { font-family:'JetBrains Mono',monospace; }
+    
+    /* Top Navigation Header */
+    .slide-nav-bar {
+      background:#FFFFFF;
+      border-bottom:1px solid #E2E8F0;
+      padding:12px 24px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      position:sticky;
+      top:0;
+      z-index:100;
+      box-shadow:0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .btn-back {
+      text-decoration:none;
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.85rem;
+      font-weight:700;
+      color:#2563EB;
+      background:#EFF6FF;
+      border:1px solid rgba(37,99,235,0.3);
+      padding:8px 16px;
+      border-radius:6px;
+      transition:all 0.15s ease;
+    }
+    .btn-back:hover { background:#2563EB; color:#FFFFFF; }
+
+    .slide-controls {
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .btn-prev {
+      text-decoration:none;
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.85rem;
+      font-weight:700;
+      color:#475569;
+      background:#F1F5F9;
+      border:1px solid #CBD5E1;
+      padding:8px 16px;
+      border-radius:6px;
+      transition:all 0.15s ease;
+    }
+    .btn-prev:hover { background:#E2E8F0; color:#0F172A; }
+
+    .slide-counter {
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.8rem;
+      color:#64748B;
+      font-weight:600;
+    }
+
+    /* Main Slide Content Frame */
+    .slide-wrapper {
+      max-width:1200px;
+      margin:36px auto;
+      width:100%;
+      background:#FFFFFF;
+      border:1px solid #CBD5E1;
+      border-radius:16px;
+      padding:48px 60px;
+      box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);
+      position:relative;
+      overflow-y:auto;
+    }
+
+    .accent-line {
+      height:4px;
+      background:linear-gradient(90deg, #059669 0%, #2563EB 100%);
+      width:100%;
+      margin-bottom:32px;
+      border-radius:2px;
+    }
+
+    .meta-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:28px;
+      padding-bottom:16px;
+      border-bottom:1px solid #E2E8F0;
+    }
+
+    .meta-title { font-size:0.85rem; color:#059669; font-weight:700; letter-spacing:1px; }
+    .meta-badge { background:#EFF6FF; color:#2563EB; border:1px solid rgba(37,99,235,0.3); font-size:0.75rem; padding:4px 12px; border-radius:6px; font-weight:700; }
+
+    .slide-title { font-size:2.5rem; font-weight:800; line-height:1.15; color:#0F172A; margin-bottom:16px; letter-spacing:-0.5px; }
+    .slide-subtitle { font-size:1.1rem; color:#475569; line-height:1.5; max-width:960px; margin-bottom:36px; }
+
+    .grid-2col {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:24px;
+      margin-bottom:32px;
+    }
+
+    .card-intel {
+      background:#FFFFFF;
+      border:2px solid #059669;
+      border-radius:12px;
+      padding:28px;
+    }
+
+    .card-dyn {
+      background:#F8FAFC;
+      border:1px solid #DC2626;
+      border-radius:12px;
+      padding:28px;
+    }
+
+    .card-header { font-family:'JetBrains Mono',monospace; font-size:0.8rem; font-weight:800; letter-spacing:0.5px; margin-bottom:8px; }
+    .card-header.green { color:#059669; }
+    .card-header.red { color:#DC2626; }
+
+    .card-amount { font-family:'JetBrains Mono',monospace; font-size:2.2rem; font-weight:800; color:#0F172A; margin-bottom:16px; }
+    .card-sub { font-size:0.85rem; color:#64748B; padding-bottom:12px; border-bottom:1px solid #E2E8F0; margin-bottom:16px; }
+
+    .item-list { list-style:none; }
+    .item-list li { display:flex; justify-content:space-between; margin-bottom:10px; font-size:0.9rem; color:#475569; }
+    .item-list strong { font-family:'JetBrains Mono',monospace; color:#0F172A; }
+
+    .savings-box {
+      background:#ECFDF5;
+      border:1px solid rgba(5,150,105,0.4);
+      padding:24px;
+      border-radius:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+    }
+
+    .savings-title { font-size:1.05rem; font-weight:800; color:#059669; }
+    .savings-val { font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:800; color:#059669; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Fixed Navigation Bar -->
+  <div class="slide-nav-bar">
+    <a href="../../../index.html" class="btn-back">⬅️ REGRESAR AL TABLERO PRINCIPAL</a>
+    <div class="slide-controls">
+      <a href="01-cover.html" class="btn-prev">⬅️ DIAPOSITIVA ANTERIOR</a>
+      <span class="slide-counter">DIAPOSITIVA 2 DE 2</span>
+    </div>
+  </div>
+
+  <!-- Slide Canvas -->
+  <div class="slide-wrapper">
+    <div class="accent-line"></div>
+
+    <div class="meta-row">
+      <span class="mono meta-title">TEARDOWN FINANCIERO DE COSTO TOTAL (TCO)</span>
+      <span class="mono meta-badge">SESIÓN ESTRATÉGICA 27 DE JULIO</span>
+    </div>
+
+    <h1 class="slide-title">Intelligential vs. DynamiCore: > 42% de Ahorro Real</h1>
+    <p class="slide-subtitle">
+      Comparativa de costo total de propiedad (TCO) en Año 1 para una SOFOM estándar con renta de $50,000 MXN/mes.
+    </p>
+
+    <div class="grid-2col">
+      <div class="card-intel">
+        <div class="card-header green">INTELLIGENTIAL (PLAN SMARTY)</div>
+        <div class="card-amount">$700,000 MXN</div>
+        <div class="card-sub">Total Año 1 (Setup + Renta)</div>
+        <ul class="item-list">
+          <li><span>Setup Fee (2x Renta):</span> <strong>$100,000 MXN</strong></li>
+          <li><span>Renta Anual (12 meses):</span> <strong>$600,000 MXN</strong></li>
+          <li><span>Módulo PLD/FT CNBV:</span> <strong style="color:#059669;">$0 (Incluido nativo)</strong></li>
+          <li><span>Conectores SAT, INE, STP:</span> <strong style="color:#059669;">$0 (Pre-integrados)</strong></li>
+        </ul>
+      </div>
+
+      <div class="card-dyn">
+        <div class="card-header red">DYNAMICORE + TERCEROS SEPARADOS</div>
+        <div class="card-amount" style="color:#DC2626;">$1,270,000 MXN</div>
+        <div class="card-sub">Total Año 1 (Sobrecostos Ocultos)</div>
+        <ul class="item-list">
+          <li><span>Setup & Horas Custom Dev:</span> <strong>$350,000 MXN</strong></li>
+          <li><span>Renta Anual Core Monolito:</span> <strong>$720,000 MXN</strong></li>
+          <li><span>Módulo PLD/FT Externo:</span> <strong style="color:#DC2626;">$120,000 MXN extra</strong></li>
+          <li><span>Conectores API & Mantenimiento:</span> <strong style="color:#DC2626;">$80,000 MXN extra</strong></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="savings-box">
+      <span class="savings-title">AHORRO NETO COMPROBADO PARA EL CLIENTE (AÑO 1):</span>
+      <span class="savings-val">$570,000 MXN (44.8% Ahorro)</span>
+    </div>
+  </div>
+
+</body>
+</html>

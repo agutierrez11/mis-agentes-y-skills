@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diapositiva 01: Portada Ejecutiva</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin:0; padding:0; }
+    body { background:#F8FAFC; color:#0F172A; font-family:'Outfit',sans-serif; min-height:100vh; display:flex; flex-direction:column; -webkit-font-smoothing: antialiased; }
+    .mono { font-family:'JetBrains Mono',monospace; }
+    
+    .slide-nav-bar {
+      background:#FFFFFF;
+      border-bottom:1px solid #E2E8F0;
+      padding:12px 24px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      position:sticky;
+      top:0;
+      z-index:100;
+      box-shadow:0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .btn-back {
+      text-decoration:none;
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.85rem;
+      font-weight:700;
+      color:#2563EB;
+      background:#EFF6FF;
+      border:1px solid rgba(37,99,235,0.3);
+      padding:8px 16px;
+      border-radius:6px;
+      transition:all 0.15s ease;
+    }
+    .btn-back:hover { background:#2563EB; color:#FFFFFF; }
+
+    .slide-controls {
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .btn-control {
+      text-decoration:none;
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.85rem;
+      font-weight:700;
+      padding:8px 16px;
+      border-radius:6px;
+      transition:all 0.15s ease;
+    }
+    .btn-prev { color:#475569; background:#F1F5F9; border:1px solid #CBD5E1; }
+    .btn-prev:hover { background:#E2E8F0; color:#0F172A; }
+    .btn-next { color:#FFFFFF; background:#059669; border:1px solid #059669; }
+    .btn-next:hover { background:#047857; }
+
+    .slide-counter {
+      font-family:'JetBrains Mono',monospace;
+      font-size:0.8rem;
+      color:#64748B;
+      font-weight:600;
+    }
+
+    .slide-wrapper {
+      max-width:1200px;
+      margin:36px auto;
+      width:100%;
+      background:#FFFFFF;
+      border:1px solid #CBD5E1;
+      border-radius:16px;
+      padding:44px 54px;
+      box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);
+      position:relative;
+      overflow-y:auto;
+    }
+
+    .accent-line {
+      height:4px;
+      background:linear-gradient(90deg, #2563EB 0%, #059669 100%);
+      width:100%;
+      margin-bottom:28px;
+      border-radius:2px;
+    }
+
+    .meta-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:24px;
+      padding-bottom:14px;
+      border-bottom:1px solid #E2E8F0;
+    }
+
+    .meta-title { font-size:0.85rem; color:#2563EB; font-weight:700; letter-spacing:1px; }
+    .meta-badge { background:#ECFDF5; color:#059669; border:1px solid rgba(5,150,105,0.3); font-size:0.75rem; padding:4px 12px; border-radius:6px; font-weight:700; }
+
+    .eyebrow { font-size:0.85rem; color:#7C3AED; font-weight:700; letter-spacing:1.5px; margin-bottom:12px; text-transform:uppercase; }
+    .slide-title { font-size:2.8rem; font-weight:800; line-height:1.15; color:#0F172A; margin-bottom:16px; letter-spacing:-0.5px; }
+    .slide-subtitle { font-size:1.15rem; color:#475569; line-height:1.5; max-width:960px; margin-bottom:28px; }
+
+    .meta-grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+      gap:20px;
+      padding-top:28px;
+      border-top:1px solid #E2E8F0;
+    }
+
+    .meta-card { background:#F8FAFC; border:1px solid #E2E8F0; padding:20px; border-radius:10px; }
+    .meta-label { font-size:0.75rem; color:#64748B; font-weight:700; margin-bottom:4px; }
+    .meta-value { font-size:1.1rem; color:#0F172A; font-weight:700; }
+  </style>
+</head>
+<body>
+
+  <div class="slide-nav-bar">
+    <a href="../../../index.html" class="btn-back">⬅️ REGRESAR AL TABLERO PRINCIPAL</a>
+    <div class="slide-controls">
+      <span class="btn-control btn-prev" style="opacity:0.4; cursor:not-allowed;">⬅️ ANTERIOR</span>
+      <span class="slide-counter">DIAPOSITIVA 1 DE 8</span>
+      <a href="02-diagnostico-spam.html" class="btn-control btn-next">SIGUIENTE ➡️</a>
+    </div>
+  </div>
+
+  <div class="slide-wrapper">
+    <div class="accent-line"></div>
+
+    <div class="meta-row">
+      <span class="mono meta-title">INTELLIGENTIAL · SMART NATIVE® CORE</span>
+      <span class="mono meta-badge">SESIÓN DE CONSEJO: 27 DE JULIO</span>
+    </div>
+
+    <div class="mono eyebrow">ESTRATEGIA COMERCIAL & REVOPS</div>
+    <h1 class="slide-title">Infraestructura Core Bancaria para SOFOMes & Arrendadoras</h1>
+    <p class="slide-subtitle">Unificación de los <strong>4 Pilares del Crédito</strong> en una sola plataforma nativa. Meta Q3-Q4: <strong>+$200,000 MXN en MRR</strong> y <strong>+20 nuevos clientes</strong>.</p>
+
+    
+        <!-- INFOGRAFÍA EJECUTIVA KISS² (PRESENTACIÓN EN 3 MINUTOS) -->
+        <div style="background:#090D16; border:1px solid #1E293B; border-radius:16px; padding:24px; margin-top:28px; box-shadow:0 10px 25px -5px rgba(0,0,0,0.3);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid #1E293B; padding-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span class="mono" style="background:#0284C7; color:#FFFFFF; font-size:0.75rem; font-weight:800; padding:6px 14px; border-radius:6px; letter-spacing:1px;">⚡ INFOGRAFÍA EJECUTIVA KISS² (PRESENTACIÓN EN 3 MINUTOS)</span>
+              <span style="color:#94A3B8; font-size:0.85rem; font-weight:500;">Resumen Maestro para la Alineación Estratégica</span>
+            </div>
+            <span class="mono" style="color:#38BDF8; font-size:0.75rem; font-weight:700;">Intelligential × RevOps 2026</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px;">
+            
+            <!-- BLOQUE 1 -->
+            <div style="background:#0F172A; border:1px solid #0284C7; border-radius:12px; padding:16px; color:#F8FAFC;">
+              <div class="mono" style="color:#38BDF8; font-size:0.7rem; font-weight:800; letter-spacing:1px; margin-bottom:6px;">1. EL MENSAJE MAESTRO (30 SEG)</div>
+              <h4 style="font-size:0.95rem; font-weight:800; color:#FFFFFF; margin-bottom:8px; line-height:1.2;">Orquestación 3-en-1 Embebida sobre AWS</h4>
+              <p style="font-size:0.78rem; color:#94A3B8; line-height:1.35;">No vendemos APIs sueltas. Integramos <strong>Core Bancario + Compliance CNBV + Onboarding Digital</strong> activable en 30 días.</p>
+            </div>
+
+            <!-- BLOQUE 2 -->
+            <div style="background:#0F172A; border:1px solid #16A34A; border-radius:12px; padding:16px; color:#F8FAFC;">
+              <div class="mono" style="color:#4ADE80; font-size:0.7rem; font-weight:800; letter-spacing:1px; margin-bottom:6px;">2. EL MERCADO & RECOLECCIÓN (1 MIN)</div>
+              <h4 style="font-size:0.95rem; font-weight:800; color:#FFFFFF; margin-bottom:8px; line-height:1.2;">1,113 Entidades ($500M MXN) ➔ 600 Core</h4>
+              <p style="font-size:0.78rem; color:#94A3B8; line-height:1.35;">Sweet Spot: Renta $42k/m + Setup $55k. Meta 3 Años: <strong>100 Clientes ($5M MXN/m MRR | $60M ARR)</strong>.</p>
+            </div>
+
+            <!-- BLOQUE 3 -->
+            <div style="background:#0F172A; border:1px solid #9333EA; border-radius:12px; padding:16px; color:#F8FAFC;">
+              <div class="mono" style="color:#C084FC; font-size:0.7rem; font-weight:800; letter-spacing:1px; margin-bottom:6px;">3. ECOSISTEMA COOPETENCIA (30 SEG)</div>
+              <h4 style="font-size:0.95rem; font-weight:800; color:#FFFFFF; margin-bottom:8px; line-height:1.2;">16 Aliados Ya Pre-Conectados</h4>
+              <p style="font-size:0.78rem; color:#94A3B8; line-height:1.35;">Nubarium, Syntage, Mifiel, STP. Le ahorramos <strong>$600k MXN y 6 meses de programación</strong> a la SOFOM.</p>
+            </div>
+
+            <!-- BLOQUE 4 -->
+            <div style="background:#0F172A; border:1px solid #D97706; border-radius:12px; padding:16px; color:#F8FAFC;">
+              <div class="mono" style="color:#FBBF24; font-size:0.7rem; font-weight:800; letter-spacing:1px; margin-bottom:6px;">4. EJECUCIÓN ÁGIL 90 DÍAS (1 MIN)</div>
+              <h4 style="font-size:0.95rem; font-weight:800; color:#FFFFFF; margin-bottom:8px; line-height:1.2;">5 Cuentas/Día = 1 Deal/Mes</h4>
+              <p style="font-size:0.78rem; color:#94A3B8; line-height:1.35;">Cero bloqueo: 5 envíos diarios = 100/mes. Meta 90 días: <strong>15 Clientes Nuevos (+ $250k MXN MRR)</strong>.</p>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-card">
+            <div class="mono meta-label">LÍDER DE PROYECTO</div>
+            <div class="meta-value">Antonio Gutiérrez</div>
+          </div>
+          <div class="meta-card">
+            <div class="mono meta-label">SOCIO CLAVE / FOUNDER</div>
+            <div class="meta-value">Luis Fernando (CEO & Founder)</div>
+          </div>
+          <div class="meta-card">
+            <div class="mono meta-label">MERCADO TARGET</div>
+            <div class="meta-value">40% SOFOMes | 30% Arrendadoras MX</div>
+          </div>
+        </div>
+        
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPS Copilot — Briefs del Equipo | Intelligential</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16; --card: #111827; --border: #1f2937;
+      --purple: #818cf8; --cyan: #38bdf8; --green: #10b981;
+      --amber: #f59e0b; --red: #ef4444; --muted: #9ca3af;
+      --text: #f9fafb;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); color:var(--text); font-family:'Outfit',sans-serif; min-height:100vh; }
+
+    header {
+      background:#111827; border-bottom:1px solid var(--border);
+      padding:14px 28px; display:flex; justify-content:space-between; align-items:center;
+    }
+    .logo { font-family:'JetBrains Mono',monospace; font-size:1.05rem; font-weight:800; color:var(--purple); }
+    .header-actions { display:flex; gap:14px; align-items:center; }
+    .header-actions a { color:var(--cyan); text-decoration:none; font-size:0.85rem; font-weight:600; }
+
+    .container { max-width:1100px; margin:0 auto; padding:32px 24px; }
+
+    .page-title { font-size:1.5rem; font-weight:800; margin-bottom:4px; }
+    .page-sub { color:var(--muted); font-size:0.9rem; margin-bottom:28px; }
+
+    /* KPIs */
+    .kpi-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:32px; }
+    .kpi-card {
+      background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px;
+    }
+    .kpi-label { color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; }
+    .kpi-value { font-family:'JetBrains Mono',monospace; font-size:1.6rem; font-weight:800; margin-top:6px; }
+
+    /* Briefs Table */
+    .section-title {
+      font-size:1rem; font-weight:700; color:var(--cyan); margin-bottom:14px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .briefs-table {
+      width:100%; border-collapse:collapse;
+      background:var(--card); border-radius:12px; overflow:hidden;
+    }
+    .briefs-table th {
+      background:#0f172a; color:var(--muted); font-size:0.72rem;
+      text-transform:uppercase; letter-spacing:1px; padding:12px 16px; text-align:left;
+    }
+    .briefs-table td { padding:14px 16px; border-top:1px solid var(--border); font-size:0.88rem; vertical-align:top; }
+    .briefs-table tr:hover td { background:#0f172a; }
+
+    .badge {
+      display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;
+    }
+    .badge-green { background:#065f46; color:#34d399; }
+    .badge-red { background:#7f1d1d; color:#fca5a5; }
+    .badge-amber { background:#78350f; color:#fcd34d; }
+    .badge-blue { background:#1e3a5f; color:#93c5fd; }
+
+    .empty-state {
+      text-align:center; padding:60px 20px; color:var(--muted);
+    }
+    .empty-icon { font-size:3rem; margin-bottom:12px; }
+    .empty-state p { margin-bottom:6px; }
+
+    /* Upload Zone */
+    .upload-zone {
+      border:2px dashed #374151; border-radius:12px; padding:32px; text-align:center;
+      color:var(--muted); margin-bottom:32px; cursor:pointer; transition:all 0.2s;
+    }
+    .upload-zone:hover { border-color:var(--purple); color:var(--purple); background:rgba(129,140,248,0.05); }
+    .upload-zone input { display:none; }
+
+    /* Nota Cell */
+    .nota-cell { color:var(--muted); font-size:0.82rem; font-style:italic; max-width:260px; }
+
+    .privacy-bar {
+      background:#0f172a; border:1px solid #1f2937; border-radius:8px;
+      padding:10px 16px; font-size:0.75rem; color:#4b5563; margin-bottom:24px;
+      display:flex; align-items:center; gap:8px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">🤖 CPS COPILOT <span style="color:#4b5563; font-weight:400; font-size:0.8rem;">| Intelligential — Admin Briefs</span></div>
+    <div class="header-actions">
+      <span style="color:#4b5563; font-size:0.82rem;">👤 Admin: Antonio Gutiérrez</span>
+      <a href="copilot.html">← Volver al Copilot</a>
+      <a href="index.html">Tablero Principal</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="page-title">📁 Session Briefs del Equipo</div>
+    <div class="page-sub">Resúmenes de sesiones CPS — Sin datos del prospecto · Métricas propias del AE y del sistema</div>
+
+    <div class="privacy-bar">
+      🔒 <strong>Nota de Privacidad LFPDPPP:</strong> Estos briefs NO contienen nombre, RFC, email, cargo ni datos del prospecto. Solo métricas del comportamiento del sistema (reglas CPS, duración, RLHF score) y notas privadas del AE.
+    </div>
+
+    <!-- KPIs Globales -->
+    <div class="kpi-row" id="kpiRow">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Sesiones</div>
+        <div class="kpi-value" id="kpiSesiones" style="color:var(--cyan);">0</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">RLHF Score Total</div>
+        <div class="kpi-value" id="kpiRLHF" style="color:var(--green);">0</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Duración Promedio</div>
+        <div class="kpi-value" id="kpiDur" style="color:var(--amber);">-- min</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Regla Más Usada</div>
+        <div class="kpi-value" id="kpiTopRule" style="color:var(--purple); font-size:0.9rem; margin-top:10px;">--</div>
+      </div>
+    </div>
+
+    <!-- Upload Zone -->
+    <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+      <input type="file" id="fileInput" accept=".json" multiple onchange="handleFiles(event)">
+      <div style="font-size:1.5rem; margin-bottom:8px;">⬆️</div>
+      <div style="font-weight:700; font-size:0.95rem;">Arrastra o haz clic para cargar Briefs JSON</div>
+      <div style="font-size:0.8rem; margin-top:4px;">Si el servidor local no está activo, los AEs descargan el brief como JSON y tú lo subes aquí</div>
+    </div>
+
+    <!-- Tabla de Briefs -->
+    <div class="section-title">📋 Registro de Sesiones</div>
+    <div id="tableContainer">
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <p style="font-weight:700;">Aún no hay briefs registrados</p>
+        <p style="font-size:0.85rem;">Cuando un AE cierre su sesión en el Copilot, el brief aparecerá aquí automáticamente.</p>
+        <p style="font-size:0.8rem; margin-top:10px; color:#4b5563;">Si usas el modo offline (sin servidor), sube el archivo JSON arriba.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allBriefs = [];
+
+    // Intentar cargar briefs del servidor /briefs-data si está activo
+    async function loadFromServer() {
+      try {
+        const res = await fetch('/briefs-data');
+        if (res.ok) {
+          const data = await res.json();
+          allBriefs = data;
+          renderAll();
+        }
+      } catch(e) {
+        console.log("Servidor offline — modo manual activo.");
+      }
+    }
+
+    function handleFiles(event) {
+      const files = event.target.files;
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const brief = JSON.parse(e.target.result);
+            allBriefs.push(brief);
+            renderAll();
+          } catch(err) { alert("Archivo JSON inválido: " + file.name); }
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    function renderAll() {
+      // Ordenar por timestamp desc
+      allBriefs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+      renderKPIs();
+      renderTable();
+    }
+
+    function renderKPIs() {
+      document.getElementById('kpiSesiones').innerText = allBriefs.length;
+      const totalRLHF = allBriefs.reduce((s, b) => s + (b.rlhf_score || 0), 0);
+      document.getElementById('kpiRLHF').innerText = (totalRLHF > 0 ? '+' : '') + totalRLHF;
+      document.getElementById('kpiRLHF').style.color = totalRLHF >= 0 ? '#10b981' : '#ef4444';
+      if (allBriefs.length > 0) {
+        const avgDur = Math.round(allBriefs.reduce((s,b) => s + (b.duracion_min || 0), 0) / allBriefs.length);
+        document.getElementById('kpiDur').innerText = avgDur + ' min';
+      }
+      // Top rule
+      const ruleCount = {};
+      allBriefs.forEach(b => {
+        const rules = Array.isArray(b.reglas_disparadas) ? b.reglas_disparadas : [b.reglas_disparadas];
+        rules.forEach(r => { ruleCount[r] = (ruleCount[r] || 0) + 1; });
+      });
+      const topRule = Object.entries(ruleCount).sort((a,b) => b[1]-a[1])[0];
+      if (topRule) document.getElementById('kpiTopRule').innerText = topRule[0].replace('RULE_0', 'R').split('—')[0].trim();
+    }
+
+    function renderTable() {
+      if (allBriefs.length === 0) return;
+      const rows = allBriefs.map(b => {
+        const score = b.rlhf_score || 0;
+        const scoreBadge = score > 0 ? `<span class="badge badge-green">+${score} Se abrió</span>` :
+                          score < 0 ? `<span class="badge badge-red">${score} Fricción</span>` :
+                          `<span class="badge badge-blue">0 Neutro</span>`;
+        const rules = Array.isArray(b.reglas_disparadas) ? b.reglas_disparadas.join(', ') : b.reglas_disparadas;
+        const ts = b.timestamp ? new Date(b.timestamp).toLocaleString('es-MX') : '--';
+        return `<tr>
+          <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#6b7280;">${b.session_id || '--'}</span></td>
+          <td><strong>${b.ae_nombre || 'AE Anónimo'}</strong></td>
+          <td>${ts}</td>
+          <td style="text-align:center;">${b.duracion_min || '--'} min</td>
+          <td><span class="badge badge-amber" style="font-size:0.68rem;">${rules || '--'}</span></td>
+          <td style="text-align:center;">${scoreBadge}</td>
+          <td style="font-family:'JetBrains Mono',monospace; color:#34d399; font-size:0.82rem;">${b.cdi_dia || '--'}</td>
+          <td class="nota-cell">${b.nota_privada_ae || '—'}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('tableContainer').innerHTML = `
+        <table class="briefs-table">
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th>AE</th>
+              <th>Fecha / Hora</th>
+              <th>Duración</th>
+              <th>Regla CPS</th>
+              <th>RLHF</th>
+              <th>CDI / Día</th>
+              <th>Nota Privada AE</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    // Auto-cargar del servidor al abrir
+    loadFromServer();
+    // Refrescar cada 30s automáticamente
+    setInterval(loadFromServer, 30000);
+  </script>
+
+</body>
+</html>

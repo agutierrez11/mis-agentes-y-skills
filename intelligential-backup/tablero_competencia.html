@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intelligential — Matriz de Competencia & Battlecards</title>
+<style>
+:root {
+  --bg: #0a0e17;
+  --card: #111827;
+  --card-hover: #1a2332;
+  --border: #1f2937;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --accent: #3b82f6;
+  --accent-glow: rgba(59,130,246,0.15);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --intelligential: #8b5cf6;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height:1.5;
+  min-height:100vh;
+}
+.container { max-width:1400px; margin:0 auto; padding:24px; }
+
+/* HEADER */
+.header {
+  text-align:center; padding:40px 20px; border-bottom:1px solid var(--border); margin-bottom:32px;
+}
+.header h1 {
+  font-size:2.4rem; font-weight:800; background:linear-gradient(135deg,#8b5cf6,#3b82f6);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:8px;
+}
+.header p { color:var(--text-dim); font-size:1.05rem; max-width:700px; margin:0 auto; }
+.header .badge {
+  display:inline-block; background:var(--accent-glow); border:1px solid var(--accent);
+  color:var(--accent); padding:4px 14px; border-radius:20px; font-size:0.8rem; font-weight:600;
+  margin-top:12px; letter-spacing:0.5px;
+}
+
+/* TABS */
+.tabs { display:flex; gap:8px; justify-content:center; margin-bottom:28px; flex-wrap:wrap; }
+.tab-btn {
+  background:var(--card); border:1px solid var(--border); color:var(--text-dim);
+  padding:10px 24px; border-radius:10px; cursor:pointer; font-weight:600; font-size:0.9rem;
+  transition:all 0.2s;
+}
+.tab-btn:hover { background:var(--card-hover); color:var(--text); }
+.tab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+/* SECTIONS */
+.section { display:none; }
+.section.active { display:block; animation:fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+/* FILTERS */
+.filters { display:flex; gap:10px; justify-content:center; margin-bottom:20px; flex-wrap:wrap; }
+.filter-btn {
+  background:transparent; border:1px solid var(--border); color:var(--text-dim);
+  padding:6px 16px; border-radius:20px; cursor:pointer; font-size:0.8rem; font-weight:500;
+  transition:all 0.2s;
+}
+.filter-btn:hover, .filter-btn.active { background:var(--intelligential); color:#fff; border-color:var(--intelligential); }
+
+/* MATRIX TABLE */
+.matrix-wrapper { overflow-x:auto; border-radius:12px; border:1px solid var(--border); }
+.matrix-table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+.matrix-table th {
+  background:#0f172a; color:var(--text-dim); font-weight:600; text-transform:uppercase;
+  letter-spacing:0.5px; padding:12px 10px; border-bottom:1px solid var(--border); white-space:nowrap;
+  position:sticky; top:0; z-index:10;
+}
+.matrix-table td { padding:10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.matrix-table tr:hover td { background:var(--card-hover); }
+.matrix-table .company-name { font-weight:700; color:var(--text); }
+.matrix-table .company-name.intel { color:var(--intelligential); }
+.matrix-table .tag {
+  display:inline-block; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:600;
+}
+.tag-kyc { background:rgba(59,130,246,0.15); color:#60a5fa; }
+.tag-core-int { background:rgba(16,185,129,0.15); color:#34d399; }
+.tag-core-loc { background:rgba(245,158,11,0.15); color:#fbbf24; }
+.tag-intel { background:rgba(139,92,246,0.2); color:#a78bfa; }
+
+.score-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:4px; }
+.score-yes { background:var(--success); }
+.score-partial { background:var(--warning); }
+.score-no { background:var(--danger); }
+.score-na { background:var(--border); }
+
+.price-cell { font-family:'SF Mono',monospace; font-size:0.78rem; color:#cbd5e1; }
+.ttm-fast { color:var(--success); font-weight:600; }
+.ttm-medium { color:var(--warning); font-weight:600; }
+.ttm-slow { color:var(--danger); font-weight:600; }
+
+.verified-badge {
+  display:inline-flex; align-items:center; gap:4px; font-size:0.7rem; padding:2px 8px;
+  border-radius:4px; background:rgba(16,185,129,0.1); color:var(--success); font-weight:500;
+}
+
+/* BATTLECARDS */
+.battlecards-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:20px; }
+.battlecard {
+  background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px;
+  transition:all 0.25s; position:relative; overflow:hidden;
+}
+.battlecard:hover { border-color:var(--accent); transform:translateY(-3px); box-shadow:0 10px 40px rgba(0,0,0,0.3); }
+.battlecard::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+}
+.battlecard.threat-high::before { background:var(--danger); }
+.battlecard.threat-medium::before { background:var(--warning); }
+.battlecard.threat-low::before { background:var(--success); }
+
+.bc-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+.bc-title { font-size:1.1rem; font-weight:700; }
+.bc-subtitle { font-size:0.78rem; color:var(--text-dim); margin-top:2px; }
+.bc-threat {
+  padding:3px 10px; border-radius:6px; font-size:0.7rem; font-weight:700; text-transform:uppercase;
+}
+.threat-high .bc-threat { background:rgba(239,68,68,0.15); color:var(--danger); }
+.threat-medium .bc-threat { background:rgba(245,158,11,0.15); color:var(--warning); }
+.threat-low .bc-threat { background:rgba(16,185,129,0.15); color:var(--success); }
+
+.bc-meta { display:flex; gap:16px; margin-bottom:14px; flex-wrap:wrap; }
+.bc-meta-item { font-size:0.75rem; color:var(--text-dim); }
+.bc-meta-item strong { color:var(--text); display:block; font-size:0.8rem; }
+
+.bc-section { margin-bottom:12px; }
+.bc-section-title { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-dim); margin-bottom:6px; font-weight:600; }
+.bc-list { list-style:none; font-size:0.82rem; }
+.bc-list li { padding:3px 0; padding-left:14px; position:relative; color:#cbd5e1; }
+.bc-list li::before { content:'•'; position:absolute; left:0; }
+.bc-forts li::before { color:var(--success); }
+.bc-weaks li::before { color:var(--danger); }
+
+.bc-strategy {
+  background:rgba(59,130,246,0.08); border-left:3px solid var(--accent); padding:10px 12px;
+  border-radius:0 8px 8px 0; font-size:0.8rem; color:#93c5fd; margin-top:10px;
+}
+.bc-strategy strong { color:var(--accent); display:block; margin-bottom:4px; font-size:0.75rem; text-transform:uppercase; }
+
+/* ANALYSIS */
+.analysis-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:20px; }
+.analysis-card {
+  background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px;
+}
+.analysis-card h3 { font-size:1.1rem; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.analysis-card h3 .icon { font-size:1.3rem; }
+.analysis-card p, .analysis-card li { font-size:0.88rem; color:#cbd5e1; line-height:1.7; }
+.analysis-card ul { padding-left:18px; margin-top:8px; }
+.analysis-card li { margin-bottom:6px; }
+
+.quadrant { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px; }
+.quad {
+  background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:16px;
+}
+.quad h4 { font-size:0.85rem; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+.quad ul { list-style:none; font-size:0.78rem; }
+.quad ul li { padding:3px 0; color:var(--text-dim); }
+
+/* FOOTER */
+.footer { text-align:center; padding:30px; color:var(--text-dim); font-size:0.78rem; border-top:1px solid var(--border); margin-top:40px; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:#374151; }
+
+/* RESPONSIVE */
+@media(max-width:768px) {
+  .header h1 { font-size:1.6rem; }
+  .battlecards-grid { grid-template-columns:1fr; }
+  .quadrant { grid-template-columns:1fr; }
+}
+</style>
+<base target="_blank">
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>Intelligential — Matriz de Competencia & Battlecards</h1>
+  <p>Benchmark estratégico de 24 competidores y proveedores en el ecosistema fintech mexicano. Data verificada de fuentes públicas y autorizadas.</p>
+  <div class="badge">📊 BOARD-READY INTELLIGENCE — JULIO 2026</div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('matrix')">📋 Matriz de Benchmark</button>
+  <button class="tab-btn" onclick="showTab('battlecards')">🎯 Battlecards</button>
+  <button class="tab-btn" onclick="showTab('analysis')">🧠 Análisis Estratégico</button>
+</div>
+
+<!-- ==================== MATRIX ==================== -->
+<div id="matrix" class="section active">
+  <div class="filters">
+    <button class="filter-btn active" onclick="filterMatrix('all')">Todos</button>
+    <button class="filter-btn" onclick="filterMatrix('KYC')">Onboarding / KYC</button>
+    <button class="filter-btn" onclick="filterMatrix('Core-Int')">Core Internacional</button>
+    <button class="filter-btn" onclick="filterMatrix('Core-Loc')">Core Local</button>
+  </div>
+  <div class="matrix-wrapper">
+    <table class="matrix-table" id="matrixTable">
+      <thead>
+        <tr>
+          <th>Empresa</th>
+          <th>Categoría</th>
+          <th>Segmento</th>
+          <th>Precio Estimado</th>
+          <th>Onboarding</th>
+          <th>Core</th>
+          <th>PLD/AML</th>
+          <th>Reg. MX</th>
+          <th>Time-to-Mkt</th>
+          <th>AI/ML</th>
+          <th>Data Verif.</th>
+        </tr>
+      </thead>
+      <tbody id="matrixBody">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== BATTLECARDS ==================== -->
+<div id="battlecards" class="section">
+  <div class="filters">
+    <button class="filter-btn active" onclick="filterCards('all')">Todos</button>
+    <button class="filter-btn" onclick="filterCards('high')">🔴 Amenaza Alta</button>
+    <button class="filter-btn" onclick="filterCards('medium')">🟡 Amenaza Media</button>
+    <button class="filter-btn" onclick="filterCards('low')">🟢 Amenaza Baja</button>
+  </div>
+  <div class="battlecards-grid" id="battlecardsGrid"></div>
+</div>
+
+<!-- ==================== ANALYSIS ==================== -->
+<div id="analysis" class="section">
+  <div class="analysis-grid">
+    <div class="analysis-card">
+      <h3><span class="icon">⚡</span> Posicionamiento de Intelligential</h3>
+      <p>Intelligential ocupa un <strong>espacio único</strong> en el mercado mexicano: es la única plataforma que combina <strong>onboarding digital + core bancario + scoring AI/ML + cumplimiento regulatorio MX</strong> en un solo SaaS con implementación de 2-4 semanas.</p>
+      <ul>
+        <li><strong>Ventaja diferencial:</strong> Mambu/Acendes tienen core pero no onboarding nativo. Incode/MetaMap tienen KYC pero no core. Lendia tiene lending pero no core de depósitos.</li>
+        <li><strong>Ventaja de velocidad:</strong> 2-4 semanas vs 6-12 meses de COBIS/Temenos o 2 meses de Incode.</li>
+        <li><strong>Ventaja de costo:</strong> Modelo SaaS modular vs implementaciones de $100K-$500K+.</li>
+      </ul>
+    </div>
+    <div class="analysis-card">
+      <h3><span class="icon">🎯</span> Competidores Más Peligrosos</h3>
+      <ul>
+        <li><strong style="color:#ef4444">🔴 ALTA — Acendes:</strong> Core cloud-native + regulación MX + originación. Oferta casi idéntica a Intelligential. Diferenciador: Acendes tiene más años de trayectoria y marca creciente.</li>
+        <li><strong style="color:#ef4444">🔴 ALTA — LENDUS:</strong> 90+ clientes, 2-4 semanas implementación, PLD 100% integrado, cobranza inteligente. Diferenciador: LENDUS no tiene scoring AI/ML nativo avanzado ni onboarding biométrico.</li>
+        <li><strong style="color:#f59e0b">🟡 MEDIA — Dynamicore:</strong> Oferta similar pero sin onboarding integral. Amenaza si integra KYC nativo.</li>
+        <li><strong style="color:#f59e0b">🟡 MEDIA — Mambu:</strong> Gigante global con clientes en MX (Nu, Stori). Amenaza si desarrolla capa de onboarding MX nativa o baja precios.</li>
+      </ul>
+    </div>
+    <div class="analysis-card">
+      <h3><span class="icon">🛡️</span> Estrategias Recomendadas</h3>
+      <ul>
+        <li><strong>vs Acendes:</strong> Enfatizar <strong>scoring AI/ML nativo</strong> y <strong>onboarding integral con biometría</strong>. Acendes requiere integrar KYC de terceros.</li>
+        <li><strong>vs LENDUS:</strong> Destacar <strong>decisiones de crédito con IA</strong> (no solo FICO Score) y <strong>big data behavioral</strong> (tiempo de formulario, patrones de navegación).</li>
+        <li><strong>vs Mambu:</strong> Posicionar como <strong>"Mambu para SOFOMes mexicanas"</strong> — mismo nivel tecnológico pero con regulación MX integrada, sin necesidad de equipo de ingeniería interno.</li>
+        <li><strong>vs Incode/MetaMap:</strong> No competir en KYC puro. Posicionar a Intelligential como <strong>"el core que ya trae KYC integrado"</strong> — un solo contrato, un solo proveedor.</li>
+        <li><strong>vs Lendia:</strong> Diferenciar por <strong>administración de cartera post-desembolso</strong> y <strong>core bancario completo</strong> (no solo originación).</li>
+      </ul>
+    </div>
+    <div class="analysis-card">
+      <h3><span class="icon">📐</span> Mapa de Posicionamiento</h3>
+      <div class="quadrant">
+        <div class="quad">
+          <h4>🟢 Aliados Potenciales</h4>
+          <ul>
+            <li>• Nufi (validación MX)</li>
+            <li>• Moffin (data integration)</li>
+            <li>• Círculo de Crédito (buró)</li>
+            <li>• Kiban (agregación bancaria)</li>
+          </ul>
+        </div>
+        <div class="quad">
+          <h4>🔴 Competidores Directos</h4>
+          <ul>
+            <li>• Acendes (core + originación)</li>
+            <li>• LENDUS (core SOFOM/SOFIPO)</li>
+            <li>• Dynamicore (core digital)</li>
+            <li>• Softcrédito (gestión cartera)</li>
+          </ul>
+        </div>
+        <div class="quad">
+          <h4>🟡 Proveedores que Complementan</h4>
+          <ul>
+            <li>• Incode (KYC enterprise)</li>
+            <li>• MetaMap (KYC LATAM)</li>
+            <li>• Truora (KYC + WhatsApp)</li>
+            <li>• Jumio (KYC global)</li>
+          </ul>
+        </div>
+        <div class="quad">
+          <h4>⚪ No Competencia Directa</h4>
+          <ul>
+            <li>• Temenos (enterprise banca)</li>
+            <li>• Fiserv (US/NA focus)</li>
+            <li>• COBIS Topaz (cooperativas)</li>
+            <li>• ZELL (solo nómina)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>📅 Generado: Julio 2026 | 🔍 Data verificada de fuentes públicas: Gartner, Capterra, Vendr, Mexico Business News, Legal Paradox, sitios corporativos, reportes financieros.</p>
+  <p style="margin-top:6px; color:#64748b;">⚠️ Precios estimados basados en benchmarks públicos. Los precios reales requieren cotización directa con cada proveedor.</p>
+</div>
+
+</div>
+
+<script>
+// ==================== DATA ====================
+const competitors = [
+  // === INTELLIGENTIAL ===
+  {name:"Intelligential", cat:"Intel", segment:"SOFOM/SOFIPO/Fintech MX", price:"SaaS modular", onboard:"✅ Nativo", core:"✅ Sí", pld:"✅ Sí", regmx:"✅ Integrada", ttm:"2-4 sem", ai:"✅ Scoring + Cobranza", verified:"✅", catFilter:"Intel"},
+  // === ONBOARDING / KYC ===
+  {name:"Incode Technologies", cat:"KYC", segment:"Bancos / Enterprise", price:"$1-5/verif (est.)", onboard:"✅ Omni", core:"❌ No", pld:"✅ Sí", regmx:"⚠️ Global", ttm:"~2 meses", ai:"✅ Biometría", verified:"✅", catFilter:"KYC"},
+  {name:"MetaMap (ex Mati)", cat:"KYC", segment:"Fintechs LATAM", price:"Custom ($250/mes+)", onboard:"✅ Flujos", core:"❌ No", pld:"✅ Sí", regmx:"✅ MX nativo", ttm:"2-4 sem", ai:"✅ Merits", verified:"✅", catFilter:"KYC"},
+  {name:"Nufi", cat:"KYC", segment:"Fintechs MX", price:"$3-15 MXN/verif", onboard:"⚠️ API", core:"❌ No", pld:"❌ No", regmx:"✅ RENAPO/SAT", ttm:"Días", ai:"❌ No", verified:"⚠️ Estimado", catFilter:"KYC"},
+  {name:"Truora", cat:"KYC", segment:"Fintechs LATAM", price:"$83/mes + per-check", onboard:"✅ +WhatsApp", core:"❌ No", pld:"✅ Sí", regmx:"✅ LFPDPPP", ttm:"1-2 sem", ai:"✅ Riesgo", verified:"✅", catFilter:"KYC"},
+  {name:"FacePhi", cat:"KYC", segment:"Bancos globales", price:"Enterprise (opaco)", onboard:"✅ 360° ID", core:"❌ No", pld:"✅ Fraud", regmx:"⚠️ Global", ttm:"2-4 sem", ai:"✅ AI ID", verified:"✅", catFilter:"KYC"},
+  {name:"Jumio", cat:"KYC", segment:"Enterprise global", price:"$0.90-2.30/verif", onboard:"✅ KYC+AML", core:"❌ No", pld:"✅ Beam", regmx:"⚠️ Global", ttm:"2-4 sem", ai:"✅ AI/ML", verified:"✅", catFilter:"KYC"},
+  {name:"Círculo de Crédito", cat:"KYC", segment:"Todas las IF", price:"$50 MXN score", onboard:"❌ No", core:"❌ No", pld:"❌ No", regmx:"✅ Regulado", ttm:"Inmediato", ai:"✅ FICO", verified:"✅", catFilter:"KYC"},
+  {name:"XP Azul (Expediente Azul)", cat:"KYC", segment:"Financieras / Inmob.", price:"$5K-80K/mes", onboard:"✅ Docs", core:"❌ No", pld:"❌ No", regmx:"⚠️ Parcial", ttm:"1-2 sem", ai:"❌ No", verified:"⚠️ Estimado", catFilter:"KYC"},
+  {name:"Moffin", cat:"KYC", segment:"SOFOMes / Fintechs", price:"$5K-10K/mes", onboard:"⚠️ iPaaS", core:"❌ No", pld:"✅ Sí", regmx:"✅ Buró+SAT", ttm:"1-2 sem", ai:"✅ Análisis", verified:"✅", catFilter:"KYC"},
+  {name:"Kiban", cat:"KYC", segment:"SOFOMes B2B", price:"$5K-40K/mes", onboard:"✅ Digital", core:"⚠️ Engine", pld:"⚠️ Parcial", regmx:"✅ SAT+IMSS", ttm:"2-3 sem", ai:"✅ 98% prec.", verified:"✅", catFilter:"KYC"},
+  // === CORE INTERNACIONAL ===
+  {name:"Mambu", cat:"Core-Int", segment:"Neobancos / Fintechs", price:"$5K-20K/mes mín.", onboard:"❌ No", core:"✅ Cloud-native", pld:"❌ No", regmx:"❌ Requiere capa", ttm:"Semanas*", ai:"❌ Integración", verified:"✅", catFilter:"Core-Int"},
+  {name:"COBIS Topaz", cat:"Core-Int", segment:"Cooperativas / Bancos", price:"$100K-500K+ impl.", onboard:"❌ No", core:"✅ Azure", pld:"⚠️ Parcial", regmx:"✅ LATAM", ttm:"6-12 meses", ai:"❌ No", verified:"✅", catFilter:"Core-Int"},
+  {name:"Temenos", cat:"Core-Int", segment:"Bancos Tier-1", price:"$150K-10M+/año", onboard:"❌ No", core:"✅ Universal", pld:"✅ Módulos", regmx:"⚠️ Requiere loc.", ttm:"12-36 meses", ai:"✅ Módulos", verified:"✅", catFilter:"Core-Int"},
+  {name:"Fiserv (DNA)", cat:"Core-Int", segment:"Bancos / Credit Unions", price:"~$575K primer año", onboard:"❌ No", core:"✅ DNA", pld:"✅ Módulos", regmx:"❌ US/NA focus", ttm:"6-18 meses", ai:"✅ Fraud", verified:"✅", catFilter:"Core-Int"},
+  {name:"Grupo PISA (SIF)", cat:"Core-Int", segment:"SOFOM/SOFIPO/Cambio", price:"$5-20K/mes", onboard:"⚠️ Parcial", core:"✅ SIF", pld:"✅ Sí", regmx:"✅ MX completa", ttm:"2-6 meses", ai:"❌ No", verified:"⚠️ Estimado", catFilter:"Core-Int"},
+  // === CORE LOCAL ===
+  {name:"Dynamicore", cat:"Core-Loc", segment:"SOFOMes / Fintechs", price:"$15K-60K/mes", onboard:"⚠️ Parcial", core:"✅ Cloud", pld:"⚠️ Parcial", regmx:"✅ CNBV", ttm:"4-8 sem", ai:"✅ Big Data", verified:"✅", catFilter:"Core-Loc"},
+  {name:"ASCENDES (Acendes)", cat:"Core-Loc", segment:"SOFOM/SOFIPO/Fintech", price:"$5K-30K/mes", onboard:"✅ Aura", core:"✅ Cloud-native", pld:"✅ Integrado", regmx:"✅ CNBV+Banxico", ttm:"Semanas", ai:"✅ IA crédito", verified:"✅", catFilter:"Core-Loc"},
+  {name:"SIAC Software", cat:"Core-Loc", segment:"SOFIPO/SOFOM/Coop.", price:"$3K-15K/mes", onboard:"⚠️ Parcial", core:"✅ CORE", pld:"✅ XML LFPIORPI", regmx:"✅ CNBV", ttm:"2-6 sem", ai:"⚠️ Alertas", verified:"✅", catFilter:"Core-Loc"},
+  {name:"ZELL", cat:"Core-Loc", segment:"SOFOMes nómina", price:"$10K-60K/mes", onboard:"⚠️ Nómina", core:"✅ Nómina", pld:"⚠️ Parcial", regmx:"✅ Sí", ttm:"4-8 sem", ai:"❌ No", verified:"⚠️ Estimado", catFilter:"Core-Loc"},
+  {name:"CIB", cat:"Core-Loc", segment:"Inst. medianas", price:"No público", onboard:"❌ No", core:"✅ Sí", pld:"❌ No", regmx:"✅ Sí", ttm:"No público", ai:"❌ No", verified:"❌ No data", catFilter:"Core-Loc"},
+  {name:"EFISYS", cat:"Core-Loc", segment:"Microfinanzas/SOFIPO", price:"Accesible (SaaS)", onboard:"⚠️ Parcial", core:"✅ CORE", pld:"✅ Sí", regmx:"✅ MX", ttm:"2-4 sem", ai:"❌ No", verified:"✅", catFilter:"Core-Loc"},
+  {name:"Softcrédito", cat:"Core-Loc", segment:"SOFOMes pequeñas", price:"Accesible", onboard:"⚠️ Web/móvil", core:"✅ Cartera", pld:"✅ CNBV", regmx:"✅ CONDUSEF", ttm:"2-4 sem", ai:"⚠️ Smart", verified:"✅", catFilter:"Core-Loc"},
+  {name:"LENDUS", cat:"Core-Loc", segment:"SOFOM/SOFIPO/Coop.", price:"$5K/mes (est.)", onboard:"✅ Originación", core:"✅ CORE end-to-end", pld:"✅ LFPIORPI", regmx:"✅ CNBV+UIF", ttm:"2-4 sem", ai:"⚠️ FICO", verified:"✅", catFilter:"Core-Loc"},
+  {name:"Lendia", cat:"Core-Loc", segment:"Instituciones / Marketplaces", price:"Custom (LaaS)", onboard:"✅ Pre-cualif.", core:"⚠️ Lending only", pld:"✅ Legal+AML", regmx:"✅ Minsait", ttm:"2-3 sem", ai:"✅ Explainable AI", verified:"✅", catFilter:"Core-Loc"}
+];
+
+const battlecardsData = [
+  {
+    name:"Incode Technologies", subtitle:"KYC / Biometría / IDV — Unicornio global", threat:"low",
+    founded:"2015", hq:"San Francisco", employees:"600+", funding:"Unicornio ($1.25B)",
+    price:"$1-5/verif (est.) — Contact sales", clients:"Citibanamex, HSBC, Banorte, Gob. MX",
+    strengths:["Líder biometría INE en México","4.1B+ verificaciones/año","NIST+iBeta L2","Adquirió MetaMap+AuthenticID","On-prem o SaaS"],
+    weaknesses:["Sin core bancario","Pricing opaco; mínimos mensuales","Integración ~2 meses","Solo capa de verificación"],
+    strategy:"NO competir en KYC puro. Posicionar Intelligential como 'el core que YA trae KYC integrado'. Un solo contrato, un solo proveedor, sin integraciones complejas."
+  },
+  {
+    name:"MetaMap (ex Mati)", subtitle:"KYC / AML / Biometría LATAM — Adquirido por Incode", threat:"low",
+    founded:"~2018", hq:"San Francisco / LATAM", employees:"N/A", funding:"Adquirido Incode 2024",
+    price:"Custom ($250/mes en Capterra)", clients:"Bitso, Konfío, Stori, Kavak",
+    strengths:["Cobertura profunda LATAM (18 países)","Clientes fintech top","Flujos modulares","Concepto 'merits'"],
+    weaknesses:["Adquirido — futuro de marca incierto","Sin core ni cartera","Pricing opaco","Análisis/BI limitado"],
+    strategy:"Mismo que Incode. Intelligential ofrece KYC+Core+Scoring en una sola plataforma. MetaMap solo resuelve verificación."
+  },
+  {
+    name:"Truora", subtitle:"KYC + WhatsApp flows — Especialista LATAM", threat:"low",
+    founded:"~2018", hq:"Colombia", employees:"N/A", funding:"N/A",
+    price:"Desde $83/mes + per-check", clients:"Rappi, Bancolombia, OXXO",
+    strengths:["LATAM-first (18 países)","WhatsApp flows masivos","SOC2 Type II","Precio accesible","Background checks+judicial"],
+    weaknesses:["Solo LATAM","Rate limit 120 req/min","Sin core ni cartera","Documentación ES/PT"],
+    strategy:"Truora es un PROVEEDOR potencial, no competidor. Integrar Truora para KYC masivo vía WhatsApp y posicionar Intelligential como el core que lo consume."
+  },
+  {
+    name:"Jumio", subtitle:"KYC+AML global — Enterprise leader", threat:"low",
+    founded:"2010", hq:"Palo Alto, CA", employees:"500+", funding:"Privado (múltiples rondas)",
+    price:"$0.90-2.30/verif (sub-100K); median $55.8K/año", clients:"Bancos globales, fintechs, crypto",
+    strengths:["Líder global KYC+AML unificado","5,000+ documentos, 200+ países","~5 seg decisiones","ISO 27001+SOC2+PCI DSS","800+ reglas no-code"],
+    weaknesses:["Pricing 100% opaco","AML add-on +30-40% costo","Manual review en edge cases","Sin core bancario"],
+    strategy:"Jumio es PROVEEDOR de capa KYC enterprise. Intelligential puede integrar Jumio para clientes que requieran KYC global y posicionar el core+scoring como valor agregado."
+  },
+  {
+    name:"Moffin", subtitle:"iPaaS / Data integration — Guadalajara", threat:"low",
+    founded:"2020", hq:"Guadalajara, MX", employees:"N/A", funding:"$2.1M seed (2024)",
+    price:"$5K-10K/mes (est.)", clients:"70+ empresas en México",
+    strengths:["Unifica Buró+Círculo+INE+CURP+RFC","1M+ screenings","Democratiza data access","Ahorra costos de ingeniería"],
+    weaknesses:["Sin core ni cartera","Sin onboarding visual","Sin biometría propia","Startup early-stage"],
+    strategy:"ALIADO ESTRATÉGICO. Moffin resuelve la capa de datos; Intelligential el core+scoring. Integración natural para ofrecer 'data+decisiones' juntos."
+  },
+  {
+    name:"Kiban", subtitle:"Open Finance / Decision engine — 15+ años", threat:"medium",
+    founded:"~2009", hq:"México", employees:"N/A", funding:"N/A",
+    price:"$5K-40K/mes (est.)", clients:"Credicer, Lime (ex), Bien para Bien (ex)",
+    strengths:["15+ años en MX","98% precisión evaluaciones","Agregación SAT+IMSS+bancaria","Reconciliación pagos auto","Low-code/no-code"],
+    weaknesses:["Sin core bancario completo","Sin cobranza ni contabilidad","Enfoque B2B más que retail","Precio opaco"],
+    strategy:"COMPETIDOR INDIRECTO en originación. Diferenciador: Intelligential tiene core+cartera+cobranza+scoring AI end-to-end. Kiban solo resuelve evaluación."
+  },
+  {
+    name:"Mambu", subtitle:"Core cloud-native — Pionero composable banking", threat:"medium",
+    founded:"2011", hq:"Amsterdam", employees:"501-1000", funding:"Privado (>$1B val.)",
+    price:"$5K-20K/mes mín; ~$450K lic + $300K impl + $200K mant", clients:"Nu México, Stori, Konfío, 65 países",
+    strengths:["Pionero composable banking","Billions API calls/día","Multi-cloud","99.99% SLA","Clientes top en MX"],
+    weaknesses:["Sin onboarding ni PLD nativo","Requiere RegTech MX adicional","Costo elevado para SOFOMes pequeñas","Sin scoring AI nativo","Requiere equipo ingeniería interno"],
+    strategy:"Posicionar Intelligential como 'Mambu para SOFOMes mexicanas': mismo nivel cloud-native pero con regulación MX, onboarding y scoring AI integrados desde el día 1."
+  },
+  {
+    name:"COBIS Topaz", subtitle:"Core Banking sobre Azure — Incumbente cooperativo", threat:"low",
+    founded:"N/A", hq:"LATAM", employees:"N/A", funding:"N/A",
+    price:"€84,674 impl. + licencia anual; total $100K-500K+", clients:"Banco Azteca, Caja Popular Mexicana",
+    strengths:["Incumbente cooperativo LATAM","Sobre Azure","Clientes grandes MX","Cumplimiento LATAM"],
+    weaknesses:["Implementación 6-12 meses","Arquitectura legacy-envuelta","Sin onboarding digital","Overkill para SOFOMes pequeñas"],
+    strategy:"No competencia directa. COBIS apunta a cooperativas grandes con presupuestos de $100K+. Intelligential apunta a SOFOMes medianas con implementación rápida."
+  },
+  {
+    name:"Temenos", subtitle:"Enterprise core banking — Líder global", threat:"low",
+    founded:"1993", hq:"Ginebra, Suiza", employees:"5,000+", funding:"Público (SIX: TEMN)",
+    price:"Promedio $518K/año; entry $150K-250K; grandes $1M-10M+", clients:"Bancos globales Tier-1",
+    strengths:["1,550+ clientes, 150 países","Revenue $1,044M (2024)","Módulos completos","99.99% SLA"],
+    weaknesses:["Costo prohibitivo para fintechs","Implementación 1-3 años","Over-engineered para SOFOM ENR","Sin onboarding MX nativo"],
+    strategy:"No competencia directa. Temenos es para bancos con $1B+ en activos. Intelligential es para SOFOMes y fintechs que necesitan estar en producción en semanas."
+  },
+  {
+    name:"Grupo PISA (SIF)", subtitle:"Core tradicional mexicano — 35+ años", threat:"medium",
+    founded:"~1990", hq:"México", employees:"N/A", funding:"N/A",
+    price:"$5-20K/mes", clients:"SOFOMES, SOFIPOS, casas de cambio",
+    strengths:["35+ años trayectoria","Normatividad MX completa","SIF cubre core+backoffice+branches","Implementación más rápida que Temenos"],
+    weaknesses:["Arquitectura tradicional (no cloud-native)","Sin AI/ML scoring nativo","Onboarding digital limitado","UX menos moderna"],
+    strategy:"COMPETIDOR DIRECTO en SOFOMes tradicionales. Diferenciador: Intelligential es cloud-native con AI/ML, onboarding digital y time-to-market de 2-4 semanas vs 2-6 meses de PISA."
+  },
+  {
+    name:"Dynamicore", subtitle:"Core digital — Fundado 2021", threat:"high",
+    founded:"2021", hq:"México", employees:"N/A", funding:"N/A",
+    price:"$15K-60K/mes (est.)", clients:"No público",
+    strengths:["Digital-first para no-bancos","Workflows configurables","Cumple CNBV","Cloud-native","Oferta similar a Intelligential"],
+    weaknesses:["Sin onboarding integral nativo","Sin scoring AI/ML avanzado","Marca nueva sin referencias masivas","Sin cobranza inteligente declarada"],
+    strategy:"COMPETIDOR DIRECTO MÁS CERCANO. Diferenciador clave: Intelligential tiene onboarding+KYC+scoring AI+cobranza integrados. Dynamicore solo tiene core."
+  },
+  {
+    name:"ASCENDES (Acendes)", subtitle:"Core cloud-native para MX — Originación integrada", threat:"high",
+    founded:"N/A", hq:"México", employees:"N/A", funding:"N/A",
+    price:"$5K-30K/mes (est.)", clients:"SOFOMes, SOFIPOs, fintechs MX",
+    strengths:["Diseñado DESDE CERO para regulación MX","Acendes Aura: originación integrada","CNBV+Banxico+PLD nativos","API-first 100%","Semanas de implementación"],
+    weaknesses:["Sin KYC biométrico propio","Sin scoring AI/ML tan avanzado como Intelligential","Marca en crecimiento","Cobranza limitada"],
+    strategy:"COMPETIDOR DIRECTO MÁS PELIGROSO. Diferenciadores a enfatizar: (1) Scoring AI/ML nativo con big data behavioral, (2) Onboarding con biometría integrada, (3) Cobranza inteligente con IA."
+  },
+  {
+    name:"SIAC Software", subtitle:"Core para SOFIPO/SOFOM — 350+ clientes", threat:"medium",
+    founded:"N/A", hq:"México", employees:"N/A", funding:"N/A",
+    price:"$3K-15K/mes (est.)", clients:"350+ SOFOMES en México",
+    strengths:["350+ SOFOMES activas","Especializado cooperativas","PLD/FT integrado","Precio accesible","Cierres contables diarios"],
+    weaknesses:["Arquitectura tradicional","Sin onboarding digital avanzado","Sin scoring AI/ML nativo","UX menos moderna","Enfoque operativo más que estratégico"],
+    strategy:"COMPETIDOR en SOFOMes pequeñas/cooperativas. Diferenciador: Intelligential ofrece experiencia digital moderna, scoring predictivo y onboarding biométrico que SIAC no tiene."
+  },
+  {
+    name:"LENDUS", subtitle:"Core SOFOM/SOFIPO/Coop — 90+ clientes, Chiapas", threat:"high",
+    founded:"2016", hq:"Tuxtla Gutiérrez, MX", employees:"N/A", funding:"N/A",
+    price:"$5K/mes (est., escala con cartera)", clients:"90+ instituciones financieras MX",
+    strengths:["90+ clientes implementados","2-4 semanas implementación","PLD-FT 100% integrado","Cobranza inteligente multi-canal","Portal clientes web+app","Soporte 24/7"],
+    weaknesses:["Sin KYC biométrico propio","Sin scoring AI/ML avanzado (usa FICO Buró)","Marca regional (Chiapas)","Sin agregación bancaria/open finance"],
+    strategy:"COMPETIDOR DIRECTO FUERTE. Diferenciadores: (1) Scoring AI propio con big data behavioral (no solo FICO), (2) Onboarding con biometría+liveness, (3) Presencia nacional + equipo especializado."
+  },
+  {
+    name:"Softcrédito", subtitle:"Gestión de cartera — Mérida, 15+ años", threat:"medium",
+    founded:"~2010", hq:"Mérida, Yucatán", employees:"N/A", funding:"N/A",
+    price:"Accesible (no público)", clients:"100+ implementaciones, 4 países",
+    strengths:["15+ años, +65K créditos/día","5 patentes","Apps móviles B2C/B2B","Firma digital","Canales alternos de pago"],
+    weaknesses:["Enfoque SOFOMes pequeñas","Sin AI/ML scoring predictivo","On-premise disponible (menos flexible)","Sin KYC biométrico de primer nivel"],
+    strategy:"COMPETIDOR en SOFOMes pequeñas del sureste. Diferenciador: Intelligential es cloud-native puro con AI/ML, onboarding digital y escalabilidad sin fronteras geográficas."
+  },
+  {
+    name:"Lendia", subtitle:"Lending-as-a-Service — AI-driven", threat:"medium",
+    founded:"N/A", hq:"México", employees:"N/A", funding:"N/A",
+    price:"Custom (LaaS / revenue share)", clients:"Grupo Financiero Altamira, ASOFOM",
+    strengths:["5x más rápido aplicación→decisión","-80% tiempo operativo","AI explainable scoring","PyMio: marketplace PYME MX","Alianza Minsait (Indra)","Embedded lending"],
+    weaknesses:["Sin core de depósitos/cuentas","Solo lending (no admin. cartera post-desembolso)","Sin KYC biométrico propio","Modelo LaaS genera dependencia","Pricing opaco"],
+    strategy:"COMPETIDOR INDIRECTO en originación. Diferenciador: Intelligential administra TODO el ciclo de vida del cliente (onboarding→scoring→desembolso→cartera→cobranza). Lendia solo resuelve originación."
+  }
+];
+
+// ==================== RENDER MATRIX ====================
+function renderMatrix(filter) {
+  const tbody = document.getElementById('matrixBody');
+  tbody.innerHTML = '';
+  competitors.forEach(c => {
+    if(filter !== 'all' && c.catFilter !== filter) return;
+    const isIntel = c.cat === 'Intel';
+    const tr = document.createElement('tr');
+    if(isIntel) tr.style.background = 'rgba(139,92,246,0.06)';
+    tr.innerHTML = `
+      <td><span class="company-name ${isIntel?'intel':''}">${c.name}</span></td>
+      <td><span class="tag tag-${c.cat==='KYC'?'kyc':c.cat==='Core-Int'?'core-int':c.cat==='Core-Loc'?'core-loc':'intel'}">${c.cat==='Intel'?'INTELLIGENTIAL':c.cat}</span></td>
+      <td style="font-size:0.78rem;color:#94a3b8;">${c.segment}</td>
+      <td class="price-cell">${c.price}</td>
+      <td>${renderScore(c.onboard)}</td>
+      <td>${renderScore(c.core)}</td>
+      <td>${renderScore(c.pld)}</td>
+      <td>${renderScore(c.regmx)}</td>
+      <td class="${c.ttm.includes('sem')?'ttm-fast':c.ttm.includes('mes')?'ttm-medium':'ttm-slow'}">${c.ttm}</td>
+      <td>${renderScore(c.ai)}</td>
+      <td>${c.verified==='✅'?'<span class="verified-badge">✓ Verificada</span>':c.verified==='⚠️ Estimado'?'<span style="color:#f59e0b;font-size:0.7rem;">⚠️ Estimado</span>':'<span style="color:#ef4444;font-size:0.7rem;">✗ No data</span>'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function renderScore(val) {
+  if(val.startsWith('✅')) return '<span class="score-dot score-yes"></span><span style="font-size:0.75rem;color:#34d399;">'+val.replace('✅ ','')+'</span>';
+  if(val.startsWith('⚠️')) return '<span class="score-dot score-partial"></span><span style="font-size:0.75rem;color:#fbbf24;">'+val.replace('⚠️ ','')+'</span>';
+  if(val.startsWith('❌')) return '<span class="score-dot score-no"></span><span style="font-size:0.75rem;color:#f87171;">'+val.replace('❌ ','')+'</span>';
+  return '<span style="font-size:0.75rem;color:#94a3b8;">'+val+'</span>';
+}
+
+// ==================== RENDER BATTLECARDS ====================
+function renderCards(filter) {
+  const grid = document.getElementById('battlecardsGrid');
+  grid.innerHTML = '';
+  battlecardsData.forEach(bc => {
+    if(filter !== 'all' && bc.threat !== filter) return;
+    const card = document.createElement('div');
+    card.className = `battlecard threat-${bc.threat}`;
+    card.innerHTML = `
+      <div class="bc-header">
+        <div>
+          <div class="bc-title">${bc.name}</div>
+          <div class="bc-subtitle">${bc.subtitle}</div>
+        </div>
+        <div class="bc-threat">${bc.threat==='high'?'🔴 Alta':bc.threat==='medium'?'🟡 Media':'🟢 Baja'}</div>
+      </div>
+      <div class="bc-meta">
+        <div class="bc-meta-item"><strong>Fundación</strong>${bc.founded}</div>
+        <div class="bc-meta-item"><strong>Sede</strong>${bc.hq}</div>
+        <div class="bc-meta-item"><strong>Empleados</strong>${bc.employees}</div>
+        <div class="bc-meta-item"><strong>Funding</strong>${bc.funding}</div>
+      </div>
+      <div class="bc-meta">
+        <div class="bc-meta-item"><strong>Precio</strong>${bc.price}</div>
+        <div class="bc-meta-item"><strong>Clientes</strong>${bc.clients}</div>
+      </div>
+      <div class="bc-section">
+        <div class="bc-section-title">💪 Fortalezas</div>
+        <ul class="bc-list bc-forts">${bc.strengths.map(s=>`<li>${s}</li>`).join('')}</ul>
+      </div>
+      <div class="bc-section">
+        <div class="bc-section-title">⚠️ Debilidades</div>
+        <ul class="bc-list bc-weaks">${bc.weaknesses.map(s=>`<li>${s}</li>`).join('')}</ul>
+      </div>
+      <div class="bc-strategy">
+        <strong>🎯 Estrategia vs. Intelligential</strong>
+        ${bc.strategy}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ==================== TABS & FILTERS ====================
+function showTab(id) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+function filterMatrix(cat) {
+  document.querySelectorAll('.filters .filter-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderMatrix(cat);
+}
+function filterCards(threat) {
+  document.querySelectorAll('#battlecards .filter-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderCards(threat);
+}
+
+// INIT
+renderMatrix('all');
+renderCards('all');
+</script>
+</body>
+</html>
