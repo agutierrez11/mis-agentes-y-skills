@@ -124,6 +124,23 @@
 - **¿Qué es?:** Plataforma y marketplace de habilidades (Skills CLI) y red unificada de capacidades para agentes de IA. Permite conectar agentes a APIs sociales (X, Reddit, Instagram), modelos LLM y herramientas externas mediante un CLI unificado (`@aisa-one/cli`) y pagos por uso.
 - **Idea tomada:** La arquitectura de **CLI de gestión de Skills y Marketplace de Habilidades** para expandir dinámicamente las capacidades de los agentes en tiempo de ejecución.
 
+### 31. `bytedance/deer-flow`
+- **¿Qué es?:** Arnés de orquestación de "SuperAgentes" de código abierto desarrollado por ByteDance. Funciona como un entorno de ejecución autónomo ("Mini OS para IA") con coordinación multi-agente, sandboxes aislados en Docker, memoria persistente asíncrona y carga progresiva de Skills bajo demanda.
+- **Idea tomada:** La arquitectura de **orquestador central agéntico con sandboxes aislados en Docker** para que los agentes ejecuten código y tareas complejas sin riesgo.
+
+### 32. `pyg-team/pytorch_geometric` (PyG)
+- **¿Qué es?:** La biblioteca líder construida sobre PyTorch para el diseño y entrenamiento de **Redes Neuronales de Grafos (GNNs)**. Permite modelar datos con relaciones de red complejas (grafos moleculares, redes sociales, grafos de conocimiento e interconexiones financieras).
+- **Idea tomada:** La capacidad de implementar **scoring y análisis de relaciones complejas en grafos de conocimiento** para detectar fraudes o interconexiones entre entidades.
+
+### 33. `browseros-ai/BrowserOS`
+- **¿Qué es?:** Navegador web agéntico open-source basado en un fork personalizado de Chromium. Integra agentes de IA directamente en el runtime del navegador para ejecutar acciones web nativas (clics, tipado, navegación multi-paso) respetando la privacidad local (Ollama/LM Studio).
+- **Idea tomada:** El paradigma de **runtime de navegador nativo controlado por IA** para automatizar navegación y flujos complejos sin depender de emuladores lentos.
+
+### 34. `reconurge/flowsint`
+- **¿Qué es?:** Plataforma de investigación OSINT basada en grafos (TypeScript, Neo4j, PostgreSQL). Permite mapear y visualizar relaciones entre entidades digitales (dominios, IPs, correos) mediante transformaciones y enriquecedores automáticos de forma 100% local y privada.
+- **Idea tomada:** La arquitectura de **visualización gráfica de relaciones OSINT y mapeo de infraestructura** para prospección e investigación profunda de empresas y tomadores de decisión.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 30 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 34 repositorios de clase mundial.*
+
 
