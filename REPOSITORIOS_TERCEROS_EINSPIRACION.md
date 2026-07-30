@@ -148,8 +148,17 @@
 - **¿Qué es?:** La herramienta open-source oficial desarrollada por la división de IA de **Banco Santander** (`SantanderAI`). Genera grafos sintéticos masivos de transacciones bancarias (desde 1K hasta +100M de cuentas) inyectando patrones reales de **lavado de dinero (anillos cíclicos) y fraudes financieros (estructuración, BEC, mulas)** con vectores de embeddings para bases de datos de grafos (Neo4j, AWS Neptune) o Redes Neuronales de Grafos (GNNs).
 - **Idea tomada:** La metodología oficial de **Banco Santander para simulación de transacciones, detección de lavado de dinero (AML) y entrenamiento de GNNs** en infraestructuras de pagos.
 
+### 37. `SantanderAI/ralph` (Banco Santander Oficial)
+- **¿Qué es?:** Bucle autónomo en Bash/PowerShell desarrollado por **Banco Santander** para ejecutar asistentes de IA (Claude Code, Gemini, Codex) en sesiones independientes continuas, permitiendo tareas de desarrollo y refactorización desatendidas durante horas sin degradación de contexto.
+- **Idea tomada:** La arquitectura de **ejecución desatendida en bucle limpio para agentes**, garantizando estabilidad en tareas largas de codificación.
+
+### 38. `SantanderAI/autoguardrails` (Banco Santander Oficial)
+- **¿Qué es?:** Framework de alineación y barreras de seguridad (Guardrails) de la división de IA de **Banco Santander**. Evalúa y optimiza automáticamente las políticas de seguridad de los LLMs para prevenir ataques de inyección y garantizar cumplimiento normativo bancario.
+- **Idea tomada:** El sistema de **evaluación automática de guardrails de seguridad bancaria y filtrado de políticas** para IA en entornos regulados.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 36 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 38 repositorios de clase mundial.*
+
 
 
 
