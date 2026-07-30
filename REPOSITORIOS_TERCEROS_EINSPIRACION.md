@@ -140,7 +140,12 @@
 - **¿Qué es?:** Plataforma de investigación OSINT basada en grafos (TypeScript, Neo4j, PostgreSQL). Permite mapear y visualizar relaciones entre entidades digitales (dominios, IPs, correos) mediante transformaciones y enriquecedores automáticos de forma 100% local y privada.
 - **Idea tomada:** La arquitectura de **visualización gráfica de relaciones OSINT y mapeo de infraestructura** para prospección e investigación profunda de empresas y tomadores de decisión.
 
+### 35. `OpenOSINT/OpenOSINT`
+- **¿Qué es?:** Framework agéntico de investigación OSINT impulsado por IA. Ofrece un REPL interactivo (estilo Claude Code), CLI directo y un **servidor MCP nativo** que conecta 19 herramientas de investigación a clientes como Cursor o Claude Desktop, evitando alucinaciones mediante llamadas a herramientas de ejecución real.
+- **Idea tomada:** La arquitectura de **servidor MCP de OSINT con encadenamiento de herramientas autónomo** para investigación profunda de empresas, dominios y ejecutivos.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 34 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 35 repositorios de clase mundial.*
+
 
 
