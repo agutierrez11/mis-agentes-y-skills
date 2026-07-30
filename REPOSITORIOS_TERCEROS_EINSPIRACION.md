@@ -108,6 +108,11 @@
 - **¿Qué es?:** La plataforma de inteligencia financiera Open-Source y copiloto operativo para ejecutivos y PYMEs (Financial Operating System for Founders). Integra sincronización bancaria, coincidencia de facturas/recibos con IA, monitoreo de flujo de caja (Burn Rate / Runway) y asistente agéntico de finanzas con soporte de voz y comandos.
 - **Idea tomada:** La arquitectura del **Copiloto Financiero con IA**, categorización automática de transacciones y conciliación de bancarios/facturas en tiempo real sin intervención humana.
 
+### 27. `PaddlePaddle/Anakin`
+- **¿Qué es?:** El motor de inferencia de alto rendimiento desarrollado por Baidu/PaddlePaddle diseñado para optimizar redes neuronales profundas en hardware heterogéneo (NVIDIA GPUs, ARM, x86). Ejecuta fusión de operadores (Operator Fusion) y gestión de memoria ultra-eficiente para reducir la latencia de respuesta a milisegundos.
+- **Idea tomada:** La arquitectura de **fusión de operadores y memoria ultrarrápida** para despliegue de microservicios de IA en hardware limitado (optimización de recursos).
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 26 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 27 repositorios de clase mundial.*
+
 
