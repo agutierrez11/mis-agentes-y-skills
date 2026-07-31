@@ -156,8 +156,21 @@
 - **¿Qué es?:** Framework de alineación y barreras de seguridad (Guardrails) de la división de IA de **Banco Santander**. Evalúa y optimiza automáticamente las políticas de seguridad de los LLMs para prevenir ataques de inyección y garantizar cumplimiento normativo bancario.
 - **Idea tomada:** El sistema de **evaluación automática de guardrails de seguridad bancaria y filtrado de políticas** para IA en entornos regulados.
 
+### 39. `virgiliojr94/book-to-skill` (14k ⭐)
+- **¿Qué es?:** Herramienta que convierte libros técnicos, PDFs, EPUBs, DOCX o carpetas de documentos en una **Skill agéntica estructurada** (`SKILL.md` + resúmenes por capítulo + glosario + cheatsheet) optimizada para Claude Code, Copilot CLI y Amp.
+- **Idea tomada:** La arquitectura de **compresión de contexto y extracción por capítulos (24x-51x ahorro de tokens)** para que el copiloto consulte documentos extensos o libros socráticos sin saturar el contexto ni alucinar.
+
+### 40. `Moh4696/100-free-open-source-github-repos`
+- **¿Qué es?:** Catálogo curado de **100 repositorios de código abierto 100% gratuitos** esenciales para desarrollo, infraestructura y agentes, desglosando la letra chiquita (*honest catch*) de cada herramienta.
+- **Idea tomada:** Referencia directa de infraestructuras open-source verificadas sin costos ocultos.
+
+### 41. `gsap-animation-architect`
+- **¿Qué es?:** Skill agéntica para la integración de la librería **GSAP (GreenSock Animation Platform)**, ScrollTrigger y TextPlugin en interfaces web.
+- **Idea tomada:** Animaciones a 60 FPS aceleradas por GPU, contadores numéricos en vivo, transiciones de nivel de fricción y animaciones de entrada para portafolios y dashboards.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 38 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 41 repositorios de clase mundial.*
+
 
 
 
