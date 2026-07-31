@@ -176,8 +176,13 @@
 - **¿Qué es?:** Marketplace curado de plugins para agentes de IA y aislador de variaciones de Claude Code con proveedores personalizados (LiteLLM, OpenRouter, MiniMax).
 - **Idea tomada:** La gestión de marketplaces de plugins y enrutamiento inteligente de LLMs para reducir costos de inferencia.
 
+### 45. `Anakin-Inc/anakin` (Open-Source Web Scraping API for AI)
+- **¿Qué es?:** API open-source de Web Scraping para IA que convierte cualquier sitio web en Markdown limpio listo para LLM/RAG o JSON estructurado mediante Gemini AI. Incluye navegador anti-detección (*Camoufox*), selección inteligente de proxies con *Thompson Sampling*, y ejecución local de 1 comando sin dependencias en la nube.
+- **Idea tomada:** Ingesta de datos web y prospección automatizada en tiempo real con conversión directa a Markdown limpio para alimentar las skills y el Copiloto de Ventas.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 44 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 45 repositorios de clase mundial.*
+
 
 
 
