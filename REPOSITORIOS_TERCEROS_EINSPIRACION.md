@@ -180,8 +180,19 @@
 - **¿Qué es?:** API open-source de Web Scraping para IA que convierte cualquier sitio web en Markdown limpio listo para LLM/RAG o JSON estructurado mediante Gemini AI. Incluye navegador anti-detección (*Camoufox*), selección inteligente de proxies con *Thompson Sampling*, y ejecución local de 1 comando sin dependencias en la nube.
 - **Idea tomada:** Ingesta de datos web y prospección automatizada en tiempo real con conversión directa a Markdown limpio para alimentar las skills y el Copiloto de Ventas.
 
+### 46. `Panniantong/agent-reach` (63.4k ⭐) (Universal Internet Access for AI Agents)
+- **¿Qué es?:** Una capa de capacidad unificada (*Capability Layer*) que le da ojos a cualquier Agente de IA (Claude Code, Antigravity, Cursor) para leer y buscar en TODO internet sin pagar APIs.
+- **Canales soportados:**
+  - **Leer cualquier sitio web:** Vía *Jina Reader* (gratis, sin API Key).
+  - **Twitter / X & Reddit:** Vía `twitter-cli` y `OpenCLI`.
+  - **YouTube:** Extrae transcripciones y subtítulos de cualquier video con `yt-dlp`.
+  - **Búsqueda Semántica Global:** Conecta con *Exa* vía MCP (`mcporter`).
+  - **LinkedIn & GitHub:** Vía `linkedin-scraper-mcp` y `gh CLI`.
+- **Idea tomada:** Instalar una capa omnicanal para que los agentes extraigan inteligencia comercial, prospección de cuentas B2B y análisis de prospectos en LinkedIn/Twitter/YouTube sin costo de API.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 45 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 46 repositorios de clase mundial.*
+
 
 
 
