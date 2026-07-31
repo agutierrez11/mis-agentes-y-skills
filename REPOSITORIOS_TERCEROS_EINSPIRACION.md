@@ -168,8 +168,13 @@
 - **¿Qué es?:** Skill agéntica para la integración de la librería **GSAP (GreenSock Animation Platform)**, ScrollTrigger y TextPlugin en interfaces web.
 - **Idea tomada:** Animaciones a 60 FPS aceleradas por GPU, contadores numéricos en vivo, transiciones de nivel de fricción y animaciones de entrada para portafolios y dashboards.
 
+### 42. `greensock/gsap-skills` (Official GreenSock AI Skills)
+- **¿Qué es?:** El repositorio oficial desarrollado por el equipo de GreenSock que contiene módulos de skills estructurados (`gsap-core`, `gsap-timeline`, `gsap-scrolltrigger`, `gsap-plugins`, `gsap-utils`, `gsap-react`, `gsap-performance`, `gsap-frameworks`) para enseñar a los agentes de IA (Claude Code, Cursor, Antigravity, etc.) a implementar código de animación performante y correcto.
+- **Idea tomada:** Integración de la biblioteca completa de habilidades oficiales de animación de GreenSock para generación de interfaces interactivas y timelines a 60 FPS sin errores de sintaxis.
+
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 41 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 42 repositorios de clase mundial.*
+
 
 
 
