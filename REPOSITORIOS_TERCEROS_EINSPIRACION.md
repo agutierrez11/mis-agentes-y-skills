@@ -215,6 +215,11 @@
 - **¿Qué es?:** Aplicación web interactiva oficial de la **NASA (Global Imagery Browse Services)** para visualización y renderizado de imágenes satelitales globales de alta resolución a través del tiempo.
 - **Idea tomada:** Principios de renderizado de alto rendimiento para capas de mapas interactivos, visualización de series temporales y optimización de azulejos (tiles) geoespaciales aplicables a visores GIS/MapLibre en dashboards B2B (`mapcn-gis-specialist`).
 
+### 53. `debpalash/OmniVoice-Studio` (Alternativa Local a ElevenLabs)
+- **¿Qué es?:** Estudio de voz de código abierto que permite la clonación de voz zero-shot local (con muestras desde 3 segundos), doblaje automático de videos y TTS en más de 600 idiomas sin suscripciones ni envío de datos a la nube (stack: Bun + Python `uv`).
+- **Idea tomada:** Integración de clonación de voz e hiper-personalización de notas de voz/audio outbound para secuencias de prospección B2B y demos de ventas ( Speed to Sell ), ejecutado 100% local sin costo por token de audio.
+
+
 
 
 
