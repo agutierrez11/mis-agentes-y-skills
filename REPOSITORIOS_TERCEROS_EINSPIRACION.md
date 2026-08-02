@@ -191,6 +191,27 @@
 ---
 *Catálogo maestro de inspiración agéntica consolidado con 46 repositorios de clase mundial 100% prácticos y aplicables.*
 
+### 47. `Danitilahun/n8n-workflow-templates`
+- **¿Qué es?:** Colección masiva de más de 2,000 plantillas de workflows indexadas para n8n con motor de búsqueda rápido.
+- **Idea tomada:** Aceleración de conectores webhook y sincronización con CRMs externos (HubSpot, Salesforce, Slack) sin reescribir lógica boilerplate.
+
+### 48. `meirwah/awesome-workflow-engines` & `eric-erki/awesome-workflow-engines`
+- **¿Qué es?:** Catálogo curado de motores de workflows open-source (Temporal, Prefect, Windmill, Dagster, n8n) categorizados por dominio (Microservicios, Data/AI ETL, Low-code).
+- **Idea tomada:** Benchmark de arquitectura para elegir orquestadores resilientes (`Temporal.io` para microservicios/código puro, `Prefect` para pipelines de IA/embeddings).
+
+### 49. `cobusgreyling/loop-engineering`
+- **¿Qué es?:** Marco metodológico y herramientas CLI (`loop-audit`, `loop-init`) para construir bucles autónomos de agentes de IA con verificación determinista.
+- **Idea tomada:** Patrón de arnés de agentes con puertas de validación automática (`pytest`, linters) para ejecuciones desatendidas sin degradación.
+
+### 50. `Egonex-AI/Understand-Anything`
+- **¿Qué es?:** Plugin y herramienta agéntica que convierte cualquier repositorio en un Grafo Interactivo de Conocimiento visual para navegar dependencias y arquitecturas.
+- **Idea tomada:** Creamos la skill `codebase-knowledge-graph` para que los agentes construyan diagramas de impacto y comprendan la arquitectura completa antes de refactorizar.
+
+### 51. `yc-software/qm` (Quartermaster - Y Combinator)
+- **¿Qué es?:** Arnés agéntico multi-usuario y multiplayer open-source diseñado por Y Combinator para desplegar flotas de agentes colaborativos aislados por usuario y organización.
+- **Idea tomada:** Creamos la skill `multiplayer-agent-orchestrator` para diseñar arquitecturas de flotas agénticas con sandboxes, credenciales y memoria aisladas por usuario.
+
+
 
 
 
