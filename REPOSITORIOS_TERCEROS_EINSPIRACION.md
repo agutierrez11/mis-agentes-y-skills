@@ -211,6 +211,11 @@
 - **¿Qué es?:** Arnés agéntico multi-usuario y multiplayer open-source diseñado por Y Combinator para desplegar flotas de agentes colaborativos aislados por usuario y organización.
 - **Idea tomada:** Creamos la skill `multiplayer-agent-orchestrator` para diseñar arquitecturas de flotas agénticas con sandboxes, credenciales y memoria aisladas por usuario.
 
+### 52. `nasa-gibs/worldview` & `nasa-gibs` (NASA Official)
+- **¿Qué es?:** Aplicación web interactiva oficial de la **NASA (Global Imagery Browse Services)** para visualización y renderizado de imágenes satelitales globales de alta resolución a través del tiempo.
+- **Idea tomada:** Principios de renderizado de alto rendimiento para capas de mapas interactivos, visualización de series temporales y optimización de azulejos (tiles) geoespaciales aplicables a visores GIS/MapLibre en dashboards B2B (`mapcn-gis-specialist`).
+
+
 
 
 
