@@ -188,10 +188,11 @@
   - **YouTube:** Extrae transcripciones y subtítulos de cualquier video con `yt-dlp`.
   - **Búsqueda Semántica Global:** Conecta con *Exa* vía MCP (`mcporter`).
   - **LinkedIn & GitHub:** Vía `linkedin-scraper-mcp` y `gh CLI`.
-- **Idea tomada:** Instalar una capa omnicanal para que los agentes extraigan inteligencia comercial, prospección de cuentas B2B y análisis de prospectos en LinkedIn/Twitter/YouTube sin costo de API.
-
 ---
-*Catálogo maestro de inspiración agéntica consolidado con 46 repositorios de clase mundial.*
+*Catálogo maestro de inspiración agéntica consolidado con 46 repositorios de clase mundial 100% prácticos y aplicables.*
+
+
+
 
 
 
