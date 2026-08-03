@@ -219,18 +219,14 @@
 - **¿Qué es?:** Estudio de voz de código abierto que permite la clonación de voz zero-shot local (con muestras desde 3 segundos), doblaje automático de videos y TTS en más de 600 idiomas sin suscripciones ni envío de datos a la nube (stack: Bun + Python `uv`).
 - **Idea tomada:** Integración de clonación de voz e hiper-personalización de notas de voz/audio outbound para secuencias de prospección B2B y demos de ventas ( Speed to Sell ), ejecutado 100% local sin costo por token de audio.
 
+### 54. `datalab-to/surya`
+- **¿Qué es?:** Toolkit de OCR multilingüe de alto rendimiento y análisis de documentos impulsado por modelos visión-lenguaje (VLM).
+- **Idea tomada:** Extracción de texto y análisis de layout en documentos PDF escaneados (estados financieros, contratos) para Radar Comercial, permitiendo lectura profunda sin dependencias en la nube.
 
+### 55. `jamiepine/voicebox`
+- **¿Qué es?:** Estudio local de síntesis y clonación de voz con IA (usa modelos Qwen3-TTS), desarrollado en Tauri, Rust y Python.
+- **Idea tomada:** Integración en "modo susurro" para CPS Copilot, permitiendo al sistema dictar las objeciones y fricciones socráticas directo al oído del vendedor durante la llamada en tiempo real.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+### 56. `hardikpandya/stop-slop`
+- **¿Qué es?:** Skill agéntica diseñada para limpiar el "AI slop" y forzar a la IA a escribir de manera más humana, eliminando palabras trilladas y estructuras predecibles (voz pasiva, listas infinitas).
+- **Idea tomada:** Filtro heurístico (Cero Bullshit) en los borradores de correo generados, forzando una redacción comercial B2B agresiva y asimétrica que no parezca generada por LLMs.
