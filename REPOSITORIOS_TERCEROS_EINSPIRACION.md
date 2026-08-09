@@ -228,5 +228,30 @@
 - **Idea tomada:** Integración en "modo susurro" para CPS Copilot, permitiendo al sistema dictar las objeciones y fricciones socráticas directo al oído del vendedor durante la llamada en tiempo real.
 
 ### 56. `hardikpandya/stop-slop`
-- **¿Qué es?:** Skill agéntica diseñada para limpiar el "AI slop" y forzar a la IA a escribir de manera más humana, eliminando palabras trilladas y estructuras predecibles (voz pasiva, listas infinitas).
-- **Idea tomada:** Filtro heurístico (Cero Bullshit) en los borradores de correo generados, forzando una redacción comercial B2B agresiva y asimétrica que no parezca generada por LLMs.
+- **?Qu? es?:** Skill ag?ntica dise?ada para limpiar el "AI slop" y forzar a la IA a escribir de manera m?s humana, eliminando palabras trilladas y estructuras predecibles (voz pasiva, listas infinitas).
+- **Idea tomada:** Filtro heur?stico (Cero Bullshit) en los borradores de correo generados, forzando una redacci?n comercial B2B agresiva y asim?trica que no parezca generada por LLMs.
+
+### 57. `VoltAgent/awesome-claude-design` (3.3k ?)
+- **?Qu? es?:** Colecci?n curada de m?s de **68 sistemas de dise?o listos para producci?n** formateados como archivos `DESIGN.md` para agentes de IA (Claude Code / Antigravity). Permite a los agentes maquetar UIs completas en un solo intento con paletas de color HSL, tipograf?as (Inter, Outfit, Plus Jakarta Sans, JetBrains Mono), bordes transl?cidos y micro-interacciones.
+- **Idea / Skill creada:** Creamos la skill `awesome-claude-design` para que nuestros agentes apliquen autom?ticamente identidades visuales inspiradas en *Linear, Stripe, Vercel, Apple, Supabase y Bento Grids*.
+- **Enlace:** https://github.com/VoltAgent/awesome-claude-design
+
+### 58. `dembrandt/dembrandt` & `dembrandt-skills`
+- **?Qu? es?:** CLI de ingenier?a inversa para dise?o web basado en Playwright. Renderiza sitios en producci?n, ejecuta JavaScript y extrae estilos computados, tipograf?a, escalas de espaciado, paletas HEX/HSL y sombras en formato est?ndar **W3C Design Tokens / JSON**.
+- **Idea / Skill creada:** Creamos la skill `dembrandt-designer` para auditar sistemas de dise?o de competidores (Banxico, Wise, Stripe) e integrarlos en pipelines de CI/CD para detectar *design drift*.
+- **Enlace:** https://github.com/dembrandt/dembrandt
+
+### 59. `MengTo/kage` (Meng To / Design+Code)
+- **?Qu? es?:** Experiencia interactiva 3D guiada por scroll (*Scroll Worlds Engine*) desarrollada por Meng To. Renderizada en vivo con **Three.js / WebGL en un solo archivo HTML aut?nomo** (~1 MB sin dependencias de red en runtime).
+- **Idea / Skill creada:** Creamos la skill `kage-webgl-engine` para construir mundos interactivos 3D y storytelling visual en landings comerciales sin sobrecargar el navegador.
+- **Enlace:** https://github.com/MengTo/kage
+
+### 60. `domdoss/Warden`
+- **?Qu? es?:** Orquestador de agentes locales aut?nomos con arquitectura multi-agente (*Atlas* para web/shell con Playwright, *Iris* para correos IMAP/SMTP y calendarios, *Dexter/Byte* para gesti?n de tareas y *The Council* para deliberaci?n multi-LLM colegiada). Cuenta con la habilidad de auto-inspeccionar y auto-modificar su propio c?digo fuente.
+- **Idea / Skill creada:** Creamos la skill `warden-agent-orchestrator` como referencia para agentes de ejecuci?n local 24/7 con bucle cerrado y gobernanza de seguridad en sandboxes.
+- **Enlace:** https://github.com/domdoss/Warden
+
+### 61. `Gradient SaaS / gradientsaas.blogspot.com`
+- **?Qu? es?:** Biblioteca y repositorio de gradientes CSS modernos (Aurora effects, Mesh Gradients, Glow borders y paletas HSL oscuras) orientada a interfaces SaaS y dashboards anal?ticos.
+- **Idea tomada:** Integrado como biblioteca de tokens de gradientes para dashboards en tema oscuro como el Cockpit de Orion-FX.
+- **Enlace:** https://gradientsaas.blogspot.com/
