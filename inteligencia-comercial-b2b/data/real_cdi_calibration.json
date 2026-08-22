@@ -1,9 +1,0 @@
-{
-  "hours_wasted_weekly": 52,
-  "labor_cost_hourly": 380,
-  "team_size": 10,
-  "annual_cnbv_fine_risk": 800000,
-  "funnel_abandonment_rate": 0.32,
-  "avg_interest_loss_daily": 15000,
-  "notes": "Reemplazar con valores reales calculados de los deals reales de Intelligential"
-}
