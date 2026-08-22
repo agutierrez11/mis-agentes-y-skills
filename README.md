@@ -24,20 +24,36 @@ Toda la inteligencia comercial, estrategias del consejo de 5 LLMs, bases de dato
 ---
 
 ## 📂 OTROS RECURSOS & REPOSITORIOS:
-- 🔗 [`REPOSITORIOS_MAESTROS.md`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/REPOSITORIOS_MAESTROS.md): Índice de librerías y SDKs principales.
-- 🔗 [`REPOSITORIOS_TERCEROS_EINSPIRACION.md`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/REPOSITORIOS_TERCEROS_EINSPIRACION.md): Catálogo de 28 repositorios de inspiración agéntica (incluye `ai-file-sorter`).
-- 🔗 [`tablero_vixiees.html`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/tablero_vixiees.html): Tablero unificado de control visual.
+- 🔗 **[`REPOSITORIOS_MAESTROS.md`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/REPOSITORIOS_MAESTROS.md)**: Índice de librerías y SDKs principales.
+- 🔗 **[`REPOSITORIOS_TERCEROS_EINSPIRACION.md`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/REPOSITORIOS_TERCEROS_EINSPIRACION.md)**: Catálogo de 28 repositorios de inspiración agéntica (incluye `ai-file-sorter`).
+- 🔗 **[`tablero_vixiees.html`](https://github.com/agutierrez11/mis-agentes-y-skills/blob/main/tablero_vixiees.html)**: Tablero unificado de control visual.
 
 ---
 
-## 📚 BÓVEDAS DE CONOCIMIENTO (VAULTS)
+## 🌟 SKILLS DESTACADAS EN ESTE REPOSITORIO (DIRECTORIO `./skills/`)
+- **`figranium-browser-mcp`**: Automatización Playwright visual + MCP para enriquecimiento BYOK a costo cero.
+- **`osintgraph-neo4j-mining`**: Mapeo de grafos y consultas Cypher en Neo4j para puentes cálidos.
+- **`potato-mesh-federated`**: Arquitectura federada local-first (P2P) para bóvedas privadas y redes agénticas SAM.
+- **`awesome-claude-design`**: Catálogo de 68 sistemas de diseño listos para producción para agentes de IA (`DESIGN.md`, tokens HSL, Google Fonts, Bento Grids, Linear/Stripe style).
+- **`agent-reach`**: Búsqueda, scraping e inteligencia en tiempo real en más de 13 plataformas (Twitter/X, Reddit, LinkedIn, YouTube, GitHub, XiaoHongShu) sin claves de API de pago.
+- **`dembrandt-designer`**: Extracción e ingeniería inversa de Design Systems de sitios web en vivo (tokens W3C, variables CSS calculadas, paletas) mediante Playwright.
+- **`kage-webgl-engine`**: Motor de mundos 3D guiados por scroll en Three.js/WebGL en un solo archivo HTML autónomo (~1MB).
+- **`warden-agent-orchestrator`**: Orquestación de agentes locales autónomos con auto-modificación de código, sub-agentes especializados (Atlas, Iris, Dexter) y deliberación multi-modelo (The Council).
+- **`agentic-cms-architect`**: Sitios estáticos y landing pages agénticas con cero runtime (Instatic).
+- **`ai-engineering-from-scratch`**: Referencia completa de IA y arquitecturas agénticas.
+- **`gsap-animation-architect`**: Animaciones avanzadas, transiciones y micro-interacciones con GSAP.
+- **`lightpanda-scraping-specialist`**: Navegador headless ultra-ligero en Zig para scraping de alto rendimiento.
+- **`mapcn-gis-specialist`**: Mapas vectoriales interactivos e inteligencia geoespacial con MapLibre GL.
+- **`video-hyperframes-producer`**: Generación determinista de videos y animaciones MP4 con HTML/CSS puro.
+
+### 📚 Bóvedas de Conocimiento (Vaults):
 - **CPS Books & Methodologies:** Libros, marcos teóricos y metodologías de venta consultiva (MEDDIC, SPIN, Challenger Sale).
 - **Notebooks & Turreros:** Apuntes técnicos, prompts maestros y playbooks agénticos.
 - **NERV Galileo & OnlyPayments:** Arquitecturas de pagos, gateway multi-adquirente e inteligencia financiera.
 
 ---
 
-## 🤖 CATÁLOGO DE SKILLS Y HABILIDADES DISPONIBLES (`760 Skills`)
+## 🤖 CATÁLOGO COMPLETO DE SKILLS DISPONIBLES (`760 Skills`)
 
 Cada skill proporciona instrucciones de nivel experto, workflows de ejecución, plantillas y herramientas especializadas cargadas en la célula de agentes.
 
