@@ -1,4 +1,4 @@
-# 🛡️ MIS AGENTES Y SKILLS — CATÁLOGO OFICIAL DE HABILIDADES
+﻿# 🛡️ MIS AGENTES Y SKILLS — CATÁLOGO OFICIAL DE HABILIDADES
 
 Este repositorio es el catálogo público y centralizado de **Habilidades Agénticas (`skills/`)** y **Repositorios de Referencia** para la Célula de Agentes de IA en Antigravity IDE.
 
@@ -797,7 +797,9 @@ Cada skill proporciona instrucciones de nivel experto, workflows de ejecución, 
 | 757 | **`windows-infra-admin`** | Use when managing Windows Server infrastructure, Active Directory, DNS, DHCP, and Group Policy configurations, especially for enterprise-scale deployments requiring safe automation and compliance validation. | [`skills/windows-infra-admin/`](./skills/windows-infra-admin/SKILL.md) |
 | 758 | **`wordpress-master`** | Use this agent when you need to architect, optimize, or troubleshoot WordPress implementations ranging from custom theme/plugin development to enterprise-scale multisite platforms. Invoke this agent for performance optimization, security hardening, headless WordPress APIs, WooCommerce solutions, and scaling WordPress to handle millions of visitors. | [`skills/wordpress-master/`](./skills/wordpress-master/SKILL.md) |
 | 759 | **`workflow-orchestrator`** | Use this agent when you need to design, implement, or optimize complex business process workflows with multiple states, error handling, and transaction management. | [`skills/workflow-orchestrator/`](./skills/workflow-orchestrator/SKILL.md) |
-| 760 | **`workload-manager-basics`** | >- | [`skills/workload-manager-basics/`](./skills/workload-manager-basics/SKILL.md) |
+| 760 | **workload-manager-basics** | >- | [skills/workload-manager-basics/](./skills/workload-manager-basics/SKILL.md) |
+| 761 | **	hreeui-catalog** | Componentes UI 3D interactivos, shaders GLSL, héroes animados en Three.js/React Three Fiber (R3F) y catálogo ThreeUI (@designcodeio/threeui) para experiencias web premium. | [skills/threeui-catalog/](./skills/threeui-catalog/SKILL.md) |
+| 762 | **livecharts2-data-viz** | Arquitectura e integración de gráficos y mapas interactivos de alto rendimiento en tiempo real (charts 2D/3D, gauges, heatmaps, mapas geográficos) basados en LiveCharts2 (SkiaSharp engine). | [skills/livecharts2-data-viz/](./skills/livecharts2-data-viz/SKILL.md) |
 
 ---
 
