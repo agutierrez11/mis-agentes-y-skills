@@ -12,7 +12,7 @@ Este skill implementa los patrones de diseño de **affaan-m/ecc** (Explicit Agen
 ## 🛡️ Principios Fundamentales (Instincts)
 
 1. **Research-First Mandate:**
-   - Queda strictly prohibido realizar modificaciones en el código o proponer arquitecturas sin inspeccionar antes el código fuente real, schemas y archivos de configuración locales.
+   - Queda estrictamente prohibido realizar modificaciones en el código o proponer arquitecturas sin inspeccionar antes el código fuente real, schemas y archivos de configuración locales.
 
 2. **Protocolo Zero-Assumption (Cero Asunciones):**
    - Prohibido asumir que una API, tabla de base de datos (Supabase) o servicio backend está "conectado" o "listo" basándose solo en nombres de archivos o funciones.
