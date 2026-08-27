@@ -31,7 +31,7 @@ Toda la inteligencia comercial, estrategias del consejo de 5 LLMs, bases de dato
 ---
 ## ⚡ SKILLS Y AGENTES EN ESTE REPOSITORIO (`./skills/`)
 
-Este repositorio cuenta con **789 Skills Agénticas Especializadas** en desarrollo web, inteligencia comercial, ciencia de datos, DevOps, diseño UI/UX y aceleración con modelos de IA.
+Este repositorio cuenta con **790 Skills Agénticas Especializadas** en desarrollo web, inteligencia comercial, ciencia de datos, DevOps, diseño UI/UX y aceleración con modelos de IA.
 
 📘 **[`CATALOGO_SKILLS.md`](./CATALOGO_SKILLS.md)** — Consulta el catálogo completo indexado con descripciones y enlaces directos.
 
@@ -42,4 +42,4 @@ Este repositorio cuenta con **789 Skills Agénticas Especializadas** en desarrol
 - 📊 `ui-ux-pro-max`: Base de conocimientos de diseño UI, paletas y jerarquías de badges.
 - 🤖 `deepseek-harness`: Harness para modelos DeepSeek y optimización de razonamiento.
 
-*Ver el catálogo completo con las 789 skills en [CATALOGO_SKILLS.md](./CATALOGO_SKILLS.md).*
+*Ver el catálogo completo con las 790 skills en [CATALOGO_SKILLS.md](./CATALOGO_SKILLS.md).*
