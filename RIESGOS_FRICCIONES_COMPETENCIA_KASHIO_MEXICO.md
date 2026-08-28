@@ -4,35 +4,35 @@
 
 ---
 
-## 🌐 0. INTEL CLAVE: PayCash Global vs Kashio (El Conector de 400K Puntos de Pago)
+## 🦅 0. INTEL DE INFRAESTRUCTURA: Hermes (Motor Agéntico SPEI) vs Kashio vs PayCash
 
-**PayCash Global (`paycashglobal.com`)** es uno de los agregadores de recaudo en efectivo más grandes de Latinoamérica (+400,000 puntos de pago en tiendas de conveniencia, farmacias y supermercados conectados con 1 sola API).
+Hay una distinción clave en el ecosistema mexicano que demuestra tu dominio de la industria de pagos:
 
 ```mermaid
 graph TD
-    subgraph KASHIO ["🚀 KASHIO (Software SaaS & Conciliación B2B)"]
-        K1["Conciliación Bancaria Automática"]
-        K2["SPEI / Cuentas CLABE / DSI"]
-        K3["Gestión de Cartera & Notificaciones"]
+    subgraph CAPA_RIEL ["⚡ CAPA 1: RIEL E INFRAESTRUCTURA CRÍTICA"]
+        H1["<b>Hermes (Hermes MK I / SPEI 2.0):</b> Motor agéntico para participantes de Banxico (Bancos, Sofipos, IFPEs). Anti-fraude y monitoreo SPEI."]
+        H2["<b>PayCash Global:</b> Riel agregador de +400k puntos de efectivo en retail."]
+        H3["<b>STP:</b> Participante directo de SPEI."]
     end
 
-    subgraph PAYCASH ["ATM PAYCASH GLOBAL (Riel de Efectivo en Retail)"]
-        P1["+400,000 Puntos de Pago (OXXO, 7-Eleven, Farmacias)"]
-        P2["Generación de Códigos/Referencias de Efectivo"]
-        P3["1 Solas API para +10 Países LATAM"]
+    subgraph CAPA_SOFTWARE ["🏢 CAPA 2: SOFTWARE B2B PARA EL COMERCIO (KASHIO)"]
+        K1["<b>Kashio B2B SaaS:</b> Gestión de Cobranza, Cartera Vencida, Conciliación Contable y Experiencia del CFO."]
     end
 
-    KASHIO <-->|"Socio Estratégico o Competidor de Riel"| PAYCASH
+    CAPA_RIEL -->|"Kashio se conecta a los Rieles"| CAPA_SOFTWARE
 ```
 
-### ¿Por qué PayCash es RELEVANTE para la entrevista con Kashio?
+### 1. ¿Quién es Hermes (`atlas.hermes.ng`) y cómo se posiciona?
+* **¿Qué es?:** Es una infraestructura agéntica de código abierto para pagos instantáneos SPEI, enfocado en **participantes directos e indirectos de Banxico** (Bancos, Sofipos, Socaps, Fintechs). Monitorea el CEP del Banxico, anti-fraude y cumplimiento normativo.
+* **¿Es competencia de Kashio?:** 
+  * **Sí en la capa técnica profunda** si Kashio le vende a Sofipos/Bancos para monitoreo de SPEI.
+  * **No en la capa comercial B2B:** Hermes le vende a la infraestructura financiera; Kashio le vende al **CFO de la empresa corporativa** (educación, inmobiliarias, e-commerce, SaaS) para resolver la cobranza y la cartera vencida.
 
-1. **La Oportunidad de Alianza / Integración:**
-   * Kashio no necesita ir a negociar de tienda en tienda (OXXO, 7-Eleven, Farmacias del Ahorro) en México. 
-   * A través de agregadores como **PayCash Global**, Kashio puede ofrecer **Payins en efectivo en 400,000 puntos** con 1 sola integración API, complementando su motor de conciliación bancaria SPEI.
-2. **El Posicionamiento Diferenciador contra PayCash:**
-   * PayCash es un *agregador de código de barras/efectivo*. No ofrece la **capacidad SaaS de gestión de cobranza, conciliación contable automática ni automatización B2B** que tiene Kashio.
-   * Antonio puede argumentar: *"PayCash pone el código en el ticket; Kashio resuelve la conciliación, el flujo contable y el cierre de la factura para el CFO."*
+---
+
+### 2. PayCash Global: El Aliado de Payin en Efectivo
+* PayCash no es competencia de software para Kashio; es un **aliado estratégico de Payin en efectivo** para ofrecer +400,000 puntos de retail (OXXO, 7-Eleven, Farmacias) en 1 sola API.
 
 ---
 
@@ -53,17 +53,17 @@ graph TD
     subgraph COMP_DIRECTA ["💥 Competidores Directos (B2B Recaudo & Cobranza SaaS)"]
         D1["<b>Toku:</b> Recaudo automatizado de suscripciones, educación y seguros."]
         D2["<b>Conekta / Kushki:</b> Pasarelas B2B masivas con recaudo multi-canal."]
-        D3["<b>STP (Sistema de Transferencias y Pagos):</b> El gigante del SPEI con CLABEs dedicadas."]
-        D4["<b>PayCash Global:</b> Agregador de efectivo en +400k puntos de retail."]
+        D3["<b>STP:</b> El gigante del SPEI con CLABEs dedicadas."]
+        D4["<b>Hermes:</b> Motor agéntico para SPEI 2.0 y Sofipos."]
     end
 
-    subgraph COMP_INDIRECTA ["🏢 Competidores Indirectos (Tradicionales)"]
-        I1["<b>Bancas Empresariales Tradicionales:</b> BBVA, Banorte, Santander (layouts de texto)."]
-        I2["<b>ERPs y Módulos de Tesorería:</b> SAP, NetSuite, CONTPAQi (procesos manuales)."]
+    subgraph ALIANZAS ["🤝 Rieles Aliados de Payin/Payout"]
+        A1["<b>PayCash Global:</b> +400k puntos de efectivo en retail."]
+        A2["<b>OXXO xPos / iCash:</b> Red de tiendas de conveniencia."]
     end
 
     K <--> COMP_DIRECTA
-    K <--> COMP_INDIRECTA
+    K <--> ALIANZAS
 ```
 
 ---
@@ -82,8 +82,8 @@ graph TD
 
 ---
 
-## 💎 3. Cómo usar este conocimiento en tu entrevista (Tu "Cierre de Consultor")
+## 💎 3. Frase Maestra para la Entrevista (Aclaración Riel vs SaaS)
 
-> *"Diego, Alfredo: Cuando analizas el mercado mexicano, ves que jugadores como **PayCash Global** dominan el riel de efectivo en retail con 400k puntos, pero **carecen de la capa de inteligencia SaaS y conciliación automática B2B** que tiene Kashio.*
+> *"Diego, Alfredo: En México tenemos muy clara la diferencia entre **los Rieles de Infraestructura** (como STP, Hermes para el motor agéntico SPEI 2.0 o PayCash para los 400k puntos de efectivo) y **el Software B2B de Cobranza (Kashio)**.*
 > 
-> *PayCash genera el código para la tienda; Kashio le resuelve la vida al CFO automatizando la conciliación, el control de cartera vencida y el flujo contable. Mi estrategia comercial como BDM en México será posicionar a Kashio como esa capa superior de orquestación e inteligencia financiera que las empresas necesitan."*
+> *Los rieles mueven los bits y el dinero; **Kashio le resuelve la vida al CFO de la empresa**, automatizando la conciliación, eliminando la cartera vencida y cerrando el ciclo contable. Nuestra ventaja como BDM no es pelear por la infraestructura, es adueñarnos de la relación comercial con el departamento de finanzas de las empresas en México."*
