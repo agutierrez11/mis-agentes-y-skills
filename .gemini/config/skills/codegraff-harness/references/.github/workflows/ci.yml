@@ -1,0 +1,193 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # No-Zig checks — always enforced. The SDKs are committed, so they can be
+  # validated without building the binary.
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Pinned Zig installer integrity tests
+        run: python3 scripts/test-install-zig-ci.py
+
+      - name: Zig source-size guard integrity tests
+        run: python3 scripts/test-zig-lines.py
+
+      - name: Model-shape benchmark integrity
+        run: python3 benchmarks/test_model_shape.py
+
+      - name: Spec kernel conformance (properties + fixture staleness)
+        run: python3 spec/conformance.py
+
+      - name: Python SDK import smoke
+        run: python3 -c "import sys; sys.path.insert(0, 'sdk/py'); import harness_sdk; assert harness_sdk.MODELS and harness_sdk.TOOLS; print('py sdk ok:', len(harness_sdk.MODELS), 'models')"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: TypeScript SDK test, typecheck, build, and package smoke
+        working-directory: sdk/ts
+        run: |
+          npm install --ignore-scripts --workspaces=false
+          bun test
+          npm run typecheck
+          npm run build
+          npm pack --dry-run
+          npm run test:packed
+          node -e "import('./dist/harness.js').then(m => { if (!m.Harness || !m.runAgent || !m.MODELS) throw new Error('missing exports'); console.log('ts sdk ok:', m.MODELS.length, 'models'); })"
+
+  # Zig build / fmt / test + SDK drift, pinned to the exact 0.17 dev build the
+  # codebase targets.
+  zig:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: ./.github/actions/setup-codegraff-zig
+
+      - name: zig build
+        run: zig build
+
+      - name: zig fmt --check
+        run: zig fmt --check src build.zig
+
+      - name: Zig source size guard
+        run: bash scripts/check-zig-lines.sh
+
+      - name: zig build test
+        run: zig build test --summary all
+
+      - name: Local learning lifecycle and security regression
+        run: python3 tests/learn_e2e.py --graff zig-out/bin/graff
+
+      - name: Zero-configuration learning bootstrap
+        run: python3 tests/learn_bootstrap_e2e.py --graff zig-out/bin/graff
+
+      - name: Evolutionary tournament and behavioral metric regression
+        run: |
+          python3 tests/learn_tournament_e2e.py --graff zig-out/bin/graff
+          python3 tests/learn_graff_adapters.py
+          python3 tests/learn_graff_evaluator_retries.py
+
+      - name: Behavioral trace stream, re-scorer, and replay round trip
+        run: python3 scripts/test-behavior-trace.py zig-out/bin/graff
+
+      - name: Concurrent operational trace isolation and JSONL integrity
+        run: python3 scripts/test-run-isolation.py zig-out/bin/graff
+
+      - name: JSON live-control and mid-turn cancellation tests
+        run: |
+          python3 scripts/test-json-controls.py zig-out/bin/graff
+          python3 scripts/test-json-cancel.py zig-out/bin/graff
+
+      - name: Isolated read-only review regression
+        run: python3 scripts/test-review-mode.py zig-out/bin/graff
+
+      - name: Automatic learning bootstrap and its idle-workspace guard
+        run: python3 scripts/test-learn-auto-init.py zig-out/bin/graff
+
+      - name: Streamable HTTP MCP handshake and session regression
+        run: python3 scripts/test-mcp-streamable-http.py --graff zig-out/bin/graff
+
+      - name: Embedder mode --no-local-tools gate (#330)
+        run: python3 scripts/test-no-local-tools.py --graff zig-out/bin/graff
+
+      - name: Embedder mode resumable serve streams (#330)
+        run: python3 scripts/test-serve-resume.py zig-out/bin/graff
+
+      - name: Over-cap tool output spills to a session artifact (#409)
+        run: python3 scripts/test-spill-artifact.py zig-out/bin/graff
+
+      - name: Live JSON stream contains no raw stdout lines
+        run: python3 scripts/test-json-live.py zig-out/bin/graff
+
+      - name: PTY spinner anti-stealth test
+        run: python3 scripts/test-pty-spinner.py zig-out/bin/graff
+
+      - name: YOLO background-TTY job-control regression
+        run: python3 scripts/test-yolo-job-control.py zig-out/bin/graff
+
+      - name: Backgrounded prompt releases the TTY instead of suspending (#396)
+        run: python3 scripts/test-tty-release-on-exit.py zig-out/bin/graff
+
+      - name: PTY REPL interaction test
+        run: python3 scripts/test-pty-repl.py zig-out/bin/graff
+
+      - name: PTY Markdown rendering test
+        run: python3 scripts/test-pty-markdown.py zig-out/bin/graff
+
+      - name: Parallel bash Esc cancellation test (#266)
+        run: python3 scripts/test-pty-parallel-cancel.py zig-out/bin/graff
+
+      - name: PTY model preference and fallback test
+        run: python3 scripts/test-model-preference.py zig-out/bin/graff
+
+      - name: Root and subagent model-shape routing
+        run: python3 scripts/test-model-shape.py zig-out/bin/graff
+
+      - name: Codex WS/SSE transport and mid-turn compaction test
+        run: python3 scripts/test-pty-codex-ws.py zig-out/bin/graff
+
+      - name: Concurrent Codex WS interactive sessions (#480)
+        run: python3 scripts/test-pty-codex-ws-concurrent.py zig-out/bin/graff
+
+      - name: PTY /goal autonomous collapse wiring test
+        run: python3 scripts/test-pty-goal-loop.py zig-out/bin/graff
+
+      - name: PTY peer-channel delivery smoke test (#469)
+        run: python3 scripts/test-pty-peer-channel.py zig-out/bin/graff
+
+      - name: AI title and first turn run in parallel
+        run: python3 scripts/test-title-parallel.py zig-out/bin/graff
+
+      - name: Stream stall/drop is not a user Esc (#134/#132)
+        run: python3 scripts/test-stall-drop.py zig-out/bin/graff
+
+      - name: Newer-issue E2E — blank sessions not persisted (#184)
+        run: python3 scripts/test-e2e-newer-issues.py zig-out/bin/graff
+
+      - name: Expired codex token recovered mid-turn, retry carries it (#402)
+        run: python3 scripts/test-codex-auth-recovery.py zig-out/bin/graff
+
+      - name: SDK generation drift
+        run: |
+          python3 sdk/generate.py --harness ./zig-out/bin/graff
+          git diff --exit-code sdk/ \
+            || (echo "::error::SDKs are stale — run: python3 sdk/generate.py --harness ./zig-out/bin/graff" && exit 1)
+
+  # Windows build + smoke — the harness has a Win32 console backend, so verify
+  # it compiles, passes tests, and the binary loads + runs on a real Windows
+  # runner (the macOS/Linux jobs above can't exercise the console backend).
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: ./.github/actions/setup-codegraff-zig
+
+      - name: zig build
+        run: zig build
+
+      - name: zig build test
+        run: zig build test --summary all
+
+      - name: Local learning lifecycle and security regression (Windows)
+        run: python3 tests/learn_e2e.py --graff zig-out/bin/graff.exe
+
+      - name: smoke --version
+        shell: cmd
+        run: zig-out\bin\graff.exe --version
+
+      - name: smoke --help
+        shell: cmd
+        run: zig-out\bin\graff.exe --help

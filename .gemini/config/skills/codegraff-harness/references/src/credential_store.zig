@@ -1,0 +1,388 @@
+//! Atomic, owner-only writes for credential and cache files.
+//!
+//! Truncate-in-place (createFile + write) leaves a half-written file behind
+//! when the process dies, the disk fills, or a second graff writes the same
+//! path. For an OAuth credential that is fatal: the file holds the only copy of
+//! the refresh token, so a truncated write reads back as "not logged in" — a
+//! silent logout with nothing left to recover from. Write a per-writer-unique
+//! temp file in the target's own directory, fsync it, then rename over the
+//! target, so a reader sees either the whole old file or the whole new one.
+//!
+//! The guarantee is against a crashed process, not against power loss: the temp
+//! file is fsynced but the containing directory is not, so some filesystems can
+//! still lose the rename across a hard power cut. Same shape — and same limit —
+//! as learn_store.writeAtomicReplace / eval_memory.writeNotes.
+
+const std = @import("std");
+const builtin = @import("builtin");
+const Io = std.Io;
+const Value = std.json.Value;
+const Allocator = std.mem.Allocator;
+
+/// 0600 / 0700 on platforms that have permission bits at all.
+pub const private_file: Io.File.Permissions = if (Io.File.Permissions.has_executable_bit) @enumFromInt(0o600) else .default_file;
+pub const private_dir: Io.File.Permissions = if (Io.File.Permissions.has_executable_bit) @enumFromInt(0o700) else .default_dir;
+
+const max_symlink_hops = 40;
+
+fn windowsRootedTarget(allocator: Allocator, parent_absolute: []const u8, target: []const u8) ![]u8 {
+    const parent = std.fs.path.parsePathWindows(u8, parent_absolute);
+    const root = switch (parent.kind) {
+        .drive_absolute, .unc_absolute => parent.root,
+        else => return error.BadPathName,
+    };
+    const target_root = std.fs.path.parsePathWindows(u8, target).root;
+    const tail = target[target_root.len..];
+    const separator = if (root.len > 0 and root[root.len - 1] != '\\' and root[root.len - 1] != '/' and tail.len > 0) "\\" else "";
+    return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ root, separator, tail });
+}
+
+/// Return the path an ordinary write through `sub_path` would reach. Atomic
+/// rename does not follow the final symlink, so resolve only that link (and any
+/// chain it names) before staging the replacement. Relative link targets are
+/// relative to the link's directory, not to `dir` or the process cwd.
+fn writeDestination(io: Io, dir: Io.Dir, sub_path: []const u8, allocator: Allocator) ![]const u8 {
+    var current = sub_path;
+    var hops: usize = 0;
+    var target_buf: [std.fs.max_path_bytes]u8 = undefined;
+    while (true) {
+        const target_len = dir.readLink(io, current, &target_buf) catch |err| switch (err) {
+            error.NotLink, error.FileNotFound => return current,
+            else => return err,
+        };
+        if (hops == max_symlink_hops) return error.SymLinkLoop;
+        hops += 1;
+        const target = target_buf[0..target_len];
+        if (builtin.os.tag == .windows) switch (std.fs.path.parsePathWindows(u8, target).kind) {
+            .rooted => {
+                // `\foo` is rooted on the link's volume, not the process CWD's
+                // volume. Turn it into an unambiguous drive/UNC path first.
+                const parent = std.fs.path.dirname(current) orelse ".";
+                var parent_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const parent_len = try dir.realPathFile(io, parent, &parent_buf);
+                current = try windowsRootedTarget(allocator, parent_buf[0..parent_len], target);
+                continue;
+            },
+            .drive_relative => {
+                // `C:foo` is relative to drive C's working directory, never to
+                // the link's parent. Native Windows link creation normally
+                // expands this form to absolute, but preserve it if encountered.
+                current = try allocator.dupe(u8, target);
+                continue;
+            },
+            else => {},
+        };
+        current = if (std.fs.path.isAbsolute(target))
+            try allocator.dupe(u8, target)
+        else if (std.fs.path.dirname(current)) |parent|
+            // Deliberately do not normalize `..`: if `parent` is itself a
+            // symlink, the kernel must traverse it before interpreting `..`.
+            try std.fs.path.join(allocator, &.{ parent, target })
+        else
+            try allocator.dupe(u8, target);
+    }
+}
+
+/// Replace `dir`/`sub_path` with `bytes` atomically. `sub_path` may carry
+/// directory components; createFileAtomic keeps the temp file in the target's
+/// own directory, so the rename never crosses a filesystem. If `sub_path` is a
+/// symlink, preserve it and atomically replace its referent instead.
+///
+/// `permissions` is the mode for a file that does not exist yet. Pass
+/// `private_file` for anything holding a secret; pass `.default_file` to keep
+/// the ordinary umask-governed behaviour of a plain `createFile`.
+pub fn replaceFile(io: Io, dir: Io.Dir, sub_path: []const u8, bytes: []const u8, permissions: Io.File.Permissions) !void {
+    var path_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer path_arena.deinit();
+    const dest = try writeDestination(io, dir, sub_path, path_arena.allocator());
+    var atomic = try dir.createFileAtomic(io, dest, .{ .permissions = permissions, .replace = true });
+    defer atomic.deinit(io);
+    if (Io.File.Permissions.has_executable_bit) {
+        if (permissions != .default_file) {
+            // An explicit mode is a requirement, not a hint: the create mode is
+            // masked by umask and chmod is not, so re-apply it and an unusual
+            // umask cannot widen the file out from under a caller asking for
+            // 0600. NEVER do this for .default_file — that constant is 0o666,
+            // and chmodding to it publishes a world-writable credential file.
+            atomic.file.setPermissions(io, permissions) catch {};
+        } else if (dir.statFile(io, dest, .{})) |existing| {
+            // Rename-into-place discards the old inode, so without this a mode
+            // the user set by hand (`chmod 600 ~/.codex/auth.json`) would be
+            // silently re-widened on every save. Nothing to carry for a new
+            // file, and then umask governs exactly as createFile did.
+            atomic.file.setPermissions(io, Io.File.Permissions.fromMode(existing.permissions.toMode() & 0o7777)) catch {};
+        } else |_| {}
+    }
+    try atomic.file.writeStreamingAll(io, bytes);
+    try atomic.file.sync(io);
+    try atomic.replace(io);
+}
+
+/// #477: the process $HOME, pinned once at startup (startup.zig, beside
+/// #402's initCodexHome). Throwaway side agents — the pre-compaction note,
+/// the title generator, playbook reflect — carry the Agent default home="",
+/// and a caller-threaded home then resolves to "/.kimi/...", which disabled
+/// BOTH refresh arms (proactive and post-401) for those agents: the first
+/// side call after token expiry ate a 401 the root call a beat later simply
+/// refreshed around. One resolver, one file, catalog or not.
+pub var g_home: []const u8 = "";
+
+pub fn initHome(home: []const u8) void {
+    if (home.len > 0) g_home = home;
+}
+
+/// The caller's home when it has one, else the startup-pinned process home.
+fn resolveHome(home: []const u8) []const u8 {
+    return if (home.len > 0) home else g_home;
+}
+
+/// `<home>/<provider_dir>/credentials/graff-oauth.json` — where the kimi and
+/// xai device-code logins keep their access/refresh pair.
+pub fn oauthPath(arena: Allocator, home: []const u8, provider_dir: []const u8) []const u8 {
+    return std.fmt.allocPrint(arena, "{s}/{s}/credentials/graff-oauth.json", .{ resolveHome(home), provider_dir }) catch "";
+}
+
+/// Store an access/refresh/expiry triple at `oauthPath`, 0600 inside 0700 dirs.
+pub fn writeOAuth(io: Io, arena: Allocator, home: []const u8, provider_dir: []const u8, access: []const u8, refresh: []const u8, expires_at: i64) !void {
+    // createDir is one level, so make <home>/<provider_dir> then its credentials/.
+    const base = try std.fmt.allocPrint(arena, "{s}/{s}", .{ resolveHome(home), provider_dir });
+    const credentials = try std.fmt.allocPrint(arena, "{s}/credentials", .{base});
+    for ([_][]const u8{ base, credentials }) |path| {
+        Io.Dir.cwd().createDir(io, path, private_dir) catch {};
+        // iterate=true: see kimi_catalog.secureDir — a default openDir can be
+        // O_PATH on Linux, where fchmod panics EBADF instead of erroring.
+        const dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        // Dir.setPermissions panics on Windows in Zig 0.17 (`dirSetPermissionsWindows`).
+        if (builtin.os.tag != .windows) dir.setPermissions(io, private_dir) catch {};
+    }
+    var obj: std.json.ObjectMap = .empty;
+    try obj.put(arena, "access_token", .{ .string = access });
+    try obj.put(arena, "refresh_token", .{ .string = refresh });
+    try obj.put(arena, "expires_at", .{ .integer = expires_at });
+    var aw: Io.Writer.Allocating = .init(arena);
+    var stringify: std.json.Stringify = .{ .writer = &aw.writer };
+    try stringify.write(Value{ .object = obj });
+    try replaceFile(io, Io.Dir.cwd(), oauthPath(arena, home, provider_dir), aw.writer.buffered(), private_file);
+}
+
+fn entryCount(io: Io, dir: Io.Dir) !usize {
+    var it = dir.iterate();
+    var n: usize = 0;
+    while (try it.next(io)) |_| n += 1;
+    return n;
+}
+
+test "replaceFile: renames a whole new file into place, never truncating the target" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const gpa = std.testing.allocator;
+    try tmp.dir.writeFile(io, .{ .sub_path = "cred.json", .data = "{\"refresh_token\":\"old\"}" });
+
+    // Hold the ORIGINAL inode open: a truncate-in-place writer changes what this
+    // handle sees, a temp-file+rename writer cannot touch it. That is exactly
+    // the property that keeps a crashed write from eating the refresh token.
+    const original = try tmp.dir.openFile(io, "cred.json", .{});
+    defer original.close(io);
+
+    try replaceFile(io, tmp.dir, "cred.json", "{\"refresh_token\":\"new\"}", private_file);
+
+    var read_buffer: [64]u8 = undefined;
+    var reader = original.reader(io, &read_buffer);
+    const before = try reader.interface.allocRemaining(gpa, .limited(1024));
+    defer gpa.free(before);
+    try std.testing.expectEqualStrings("{\"refresh_token\":\"old\"}", before);
+
+    const after = try tmp.dir.readFileAlloc(io, "cred.json", gpa, .limited(1024));
+    defer gpa.free(after);
+    try std.testing.expectEqualStrings("{\"refresh_token\":\"new\"}", after);
+
+    // The temp file was consumed by the rename, not left in the directory.
+    try std.testing.expectEqual(@as(usize, 1), try entryCount(io, tmp.dir));
+}
+
+// The #477 g_home fallback test lives in startup_tests.zig (with the other
+// credential-scope regressions): exactly ONE test in the suite may mutate
+// g_home, because the parallel test runner makes two mutators a coin flip.
+
+test "replaceFile: .default_file keeps umask in charge and never widens an existing mode" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    // A NEW file must land on exactly the mode the plain `createFile` these call
+    // sites used to do produces: 0o666 masked by the process umask. Chmodding to
+    // the requested `.default_file` instead would publish 0o666 — world-WRITABLE
+    // ~/.codex/auth.json and ~/.simple-harness-codegraff.json.
+    (try tmp.dir.createFile(io, "reference", .{})).close(io);
+    const reference_mode = (try tmp.dir.statFile(io, "reference", .{})).permissions.toMode() & 0o777;
+    try replaceFile(io, tmp.dir, "settings.json", "{}", .default_file);
+    // (Comparing against a live reference rather than a hard 0o644 keeps this
+    // umask-agnostic; the umask-independent guard is the second half below.)
+    try std.testing.expectEqual(reference_mode, (try tmp.dir.statFile(io, "settings.json", .{})).permissions.toMode() & 0o777);
+
+    // An EXISTING file's mode survives the rewrite. Rename-into-place discards
+    // the old inode, so a user's manual `chmod 600` has to be carried forward by
+    // hand or every save silently re-widens the file.
+    try tmp.dir.setFilePermissions(io, "settings.json", private_file, .{});
+    try replaceFile(io, tmp.dir, "settings.json", "{\"fallback_providers\":[]}", .default_file);
+    try std.testing.expectEqual(@as(std.posix.mode_t, 0o600), (try tmp.dir.statFile(io, "settings.json", .{})).permissions.toMode() & 0o777);
+}
+
+test "#405: Windows rooted targets retain the link parent volume" {
+    const gpa = std.testing.allocator;
+    const drive = try windowsRootedTarget(gpa, "C:\\users\\me", "\\vault\\auth.json");
+    defer gpa.free(drive);
+    try std.testing.expectEqualStrings("C:\\vault\\auth.json", drive);
+    const unc = try windowsRootedTarget(gpa, "\\\\server\\share\\users\\me", "\\vault\\auth.json");
+    defer gpa.free(unc);
+    try std.testing.expectEqualStrings("\\\\server\\share\\vault\\auth.json", unc);
+    try std.testing.expectError(error.BadPathName, windowsRootedTarget(gpa, "relative\\parent", "\\vault\\auth.json"));
+}
+
+fn expectLinkTarget(io: Io, dir: Io.Dir, path: []const u8, expected: []const u8) !void {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const n = try dir.readLink(io, path, &buf);
+    try std.testing.expectEqualStrings(expected, buf[0..n]);
+}
+
+test "#405: replaceFile preserves a relative symlink and atomically replaces its target" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const gpa = std.testing.allocator;
+    try tmp.dir.createDir(io, "nested", .default_dir);
+    try tmp.dir.writeFile(io, .{ .sub_path = "nested/real.json", .data = "old" });
+    try tmp.dir.setFilePermissions(io, "nested/real.json", private_file, .{});
+    try tmp.dir.symLink(io, "real.json", "nested/settings.json", .{});
+
+    // Holding the referent's original inode proves the through-link write is
+    // still a rename, not a truncate hidden behind correct final contents.
+    const original = try tmp.dir.openFile(io, "nested/real.json", .{});
+    defer original.close(io);
+    try replaceFile(io, tmp.dir, "nested/settings.json", "new", .default_file);
+
+    try expectLinkTarget(io, tmp.dir, "nested/settings.json", "real.json");
+    const after = try tmp.dir.readFileAlloc(io, "nested/settings.json", gpa, .limited(64));
+    defer gpa.free(after);
+    try std.testing.expectEqualStrings("new", after);
+    var read_buf: [16]u8 = undefined;
+    var reader = original.reader(io, &read_buf);
+    const before = try reader.interface.allocRemaining(gpa, .limited(64));
+    defer gpa.free(before);
+    try std.testing.expectEqualStrings("old", before);
+    try std.testing.expectEqual(@as(u32, 0o600), (try tmp.dir.statFile(io, "nested/real.json", .{})).permissions.toMode() & 0o777);
+    const nested = try tmp.dir.openDir(io, "nested", .{ .iterate = true });
+    defer nested.close(io);
+    try std.testing.expectEqual(@as(usize, 2), try entryCount(io, nested));
+}
+
+test "#405: replaceFile follows absolute and relative symlink chains" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const gpa = std.testing.allocator;
+    var real_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const base = real_buf[0..try tmp.dir.realPath(io, &real_buf)];
+    const absolute_middle = try std.fmt.allocPrint(gpa, "{s}/middle", .{base});
+    defer gpa.free(absolute_middle);
+    try tmp.dir.writeFile(io, .{ .sub_path = "real.json", .data = "old" });
+    try tmp.dir.symLink(io, "real.json", "middle", .{});
+    try tmp.dir.symLink(io, absolute_middle, "settings.json", .{});
+
+    try replaceFile(io, tmp.dir, "settings.json", "new", private_file);
+
+    try expectLinkTarget(io, tmp.dir, "settings.json", absolute_middle);
+    try expectLinkTarget(io, tmp.dir, "middle", "real.json");
+    const after = try tmp.dir.readFileAlloc(io, "real.json", gpa, .limited(64));
+    defer gpa.free(after);
+    try std.testing.expectEqualStrings("new", after);
+}
+
+test "#405: replaceFile preserves a dangling symlink and creates its target" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const gpa = std.testing.allocator;
+    try tmp.dir.createDir(io, "nested", .default_dir);
+    try tmp.dir.symLink(io, "created.json", "nested/settings.json", .{});
+
+    try replaceFile(io, tmp.dir, "nested/settings.json", "created", private_file);
+
+    try expectLinkTarget(io, tmp.dir, "nested/settings.json", "created.json");
+    const after = try tmp.dir.readFileAlloc(io, "nested/created.json", gpa, .limited(64));
+    defer gpa.free(after);
+    try std.testing.expectEqualStrings("created", after);
+}
+
+test "#405: relative dot-dot keeps symlinked parent traversal semantics" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const gpa = std.testing.allocator;
+    try tmp.dir.createDir(io, "real", .default_dir);
+    try tmp.dir.createDir(io, "real/nested", .default_dir);
+    try tmp.dir.writeFile(io, .{ .sub_path = "real/target.json", .data = "old" });
+    try tmp.dir.symLink(io, "real/nested", "alias", .{});
+    try tmp.dir.symLink(io, "../target.json", "real/nested/settings.json", .{});
+
+    try replaceFile(io, tmp.dir, "alias/settings.json", "new", private_file);
+
+    try expectLinkTarget(io, tmp.dir, "real/nested/settings.json", "../target.json");
+    const after = try tmp.dir.readFileAlloc(io, "real/target.json", gpa, .limited(64));
+    defer gpa.free(after);
+    try std.testing.expectEqualStrings("new", after);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "target.json", .{}));
+}
+
+test "#405: replaceFile rejects a symlink cycle without replacing either link" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.symLink(io, "second", "first", .{});
+    try tmp.dir.symLink(io, "first", "second", .{});
+
+    try std.testing.expectError(error.SymLinkLoop, replaceFile(io, tmp.dir, "first", "new", private_file));
+
+    try expectLinkTarget(io, tmp.dir, "first", "second");
+    try expectLinkTarget(io, tmp.dir, "second", "first");
+    try std.testing.expectEqual(@as(usize, 2), try entryCount(io, tmp.dir));
+}
+
+test "writeOAuth: the credential file is 0600 inside 0700 directories" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const home = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+
+    try writeOAuth(io, arena, home, ".xai", "access-1", "refresh-1", 1234);
+
+    const base = try tmp.dir.openDir(io, ".xai", .{});
+    defer base.close(io);
+    const credentials = try base.openDir(io, "credentials", .{});
+    defer credentials.close(io);
+    try std.testing.expectEqual(@as(u32, 0o700), (try base.stat(io)).permissions.toMode() & 0o777);
+    try std.testing.expectEqual(@as(u32, 0o700), (try credentials.stat(io)).permissions.toMode() & 0o777);
+    const file = try credentials.openFile(io, "graff-oauth.json", .{});
+    defer file.close(io);
+    try std.testing.expectEqual(@as(u32, 0o600), (try file.stat(io)).permissions.toMode() & 0o777);
+
+    // The loader reads back what the writer stored, at the path it advertises.
+    const data = try Io.Dir.cwd().readFileAlloc(io, oauthPath(arena, home, ".xai"), arena, .limited(4096));
+    const parsed = try std.json.parseFromSliceLeaky(Value, arena, data, .{ .allocate = .alloc_always });
+    try std.testing.expectEqualStrings("access-1", parsed.object.get("access_token").?.string);
+    try std.testing.expectEqualStrings("refresh-1", parsed.object.get("refresh_token").?.string);
+    try std.testing.expectEqual(@as(i64, 1234), parsed.object.get("expires_at").?.integer);
+}

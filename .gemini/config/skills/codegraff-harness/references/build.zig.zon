@@ -1,0 +1,12 @@
+.{
+    .name = .codegraff,
+    .version = "0.17.0",
+    .minimum_zig_version = "0.17.0-dev.813+2153f8143",
+    .dependencies = .{
+        .zigzag = .{
+            .path = "vendor/zigzag",
+        },
+    },
+    .paths = .{ "", "vendor/zigzag" },
+    .fingerprint = 0x99ab87d62eef2520,
+}

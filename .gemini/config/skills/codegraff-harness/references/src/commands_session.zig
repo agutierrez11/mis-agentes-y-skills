@@ -1,0 +1,503 @@
+//! Session/environment slash commands, split out of main.zig's handleCommand
+//! (600-line goal, issue #123): /clear /new /rename /goal /loop /bash /agents
+//! /animation /theme /hooks /skills /plan (/trajectory lives in commands_trajectory.zig), plus #554's /snapshot
+//! and the snapshot half of /rewind (dispatched to commands_sandbox.zig).
+
+const std = @import("std");
+const Io = std.Io;
+const Value = std.json.Value;
+const Allocator = std.mem.Allocator;
+
+const main_mod = @import("main.zig");
+const agent_mod = @import("agent.zig");
+const provider_mod = @import("provider.zig");
+const util = @import("util.zig");
+const tools_mod = @import("tools.zig");
+const session_mod = @import("session.zig");
+const goal_state = @import("goal_state.zig");
+const proc_identity = @import("proc_identity.zig");
+const goal_flow = @import("goal_flow.zig");
+const prompts = @import("prompts.zig"); // #445: the transcript line's compaction flag resets with the conversation
+const Agent = agent_mod.Agent;
+const Keys = provider_mod.Keys;
+const ToolCall = tools_mod.ToolCall;
+const saveSession = session_mod.saveSession;
+const unixMs = util.unixMs;
+const session_ext = session_mod.session_ext;
+
+const ansi = @import("ansi.zig");
+const style = &ansi.style;
+
+const exec = @import("exec.zig");
+const execTool = exec.execTool;
+const commands_sandbox = @import("commands_sandbox.zig"); // #554 /snapshot + /rewind <id>
+const commands_trajectory = @import("commands_trajectory.zig"); // /trajectory (#602)
+const workspace_switch = @import("workspace_switch.zig");
+const plugins = @import("plugins.zig");
+
+const fleet = @import("fleet.zig");
+const promoteAgents = fleet.promoteAgents;
+
+const scoring = @import("scoring.zig");
+const promptFingerprint = scoring.promptFingerprint;
+
+const anim = @import("anim.zig");
+
+const approvals_mod = @import("approvals.zig");
+const Approvals = approvals_mod.Approvals;
+
+const trace = @import("trace.zig");
+
+const skills = @import("skills.zig");
+const skillIndex = skills.skillIndex;
+const skillDisabled = skills.skillDisabled;
+const skillInstalled = skills.skillInstalled;
+const saveSkillSetting = skills.saveSkillSetting;
+const skills_registry = skills.skills_registry;
+const skill_docs_render = @import("skill_docs_render.zig"); // the other kind: SKILL.md playbooks
+
+const title_mod = @import("title.zig");
+const setTerminalTitle = title_mod.setTerminalTitle;
+
+/// Steering state that must not outlive the conversation it was set in.
+/// /clear used to keep goal + ultracode_mode (only /new reset them), so a
+/// standing goal containing the word "ultracode" was re-appended to every
+/// assembled prompt and kept re-triggering the explicit-codeword banner
+/// after "context cleared" (#178).
+pub fn resetConversationSteering(root: *Agent) void {
+    root.goal = null;
+    root.completion_gate_armed = false; // a dropped goal re-arms the completion double-check (#318)
+    root.todos_dirty = false; // the conversation's checklist dies with it; nothing survives as /loop evidence (#318)
+    root.ultracode_mode = false;
+    root.pending_goal_note = null; // a queued supersession note dies with the conversation (#318)
+    root.goal_note_fp = 0;
+    root.goal_note_age = 0;
+    // A --goal objective is the USER's policy for the process, not a property
+    // of the conversation, so it outlives the conversation the way it outlives
+    // a resume. Without this, one /clear downgraded a standing goal to nothing,
+    // the user set a fresh /goal, got a RETIRABLE one, and the next
+    // attempt_completion ended their steering - #318 through the /clear door.
+    if (root.goal_flag) |g| root.goal = goal_flow.standingGoalFromFlag(g, null, root.todos.items, 0);
+    @import("rlm_spec.zig").resetBindsSession(root.io);
+    @import("native_fold.zig").resetSession();
+}
+
+/// Try to handle a session/environment slash command. Returns false (line
+/// unhandled) if `line` doesn't match any command in this file — the caller
+/// (handleCommand in main.zig) then tries the next peer module.
+pub fn tryHandle(root: *Agent, keys: *Keys, arena: Allocator, line: []const u8, out: *Io.Writer) !bool {
+    _ = keys; // unused in this file's command set; kept for a uniform tryHandle signature
+    // #554: claims /snapshot, and /rewind ONLY when its argument is a snapshot
+    // id — a numeric /rewind falls through to the conversation rewind below.
+    if (try commands_sandbox.tryHandle(root, arena, line, out)) return true;
+    if (try commands_trajectory.tryHandle(root, arena, line, out)) return true;
+    if (try @import("commands_experiment.zig").tryHandle(root, arena, line, out)) return true;
+    if (try workspace_switch.slashCommand(root, arena, line, out)) return true;
+    if (try plugins.slashCommand(root.io, arena, root.home, line, out)) return true;
+    if (std.mem.eql(u8, line, "/clear")) {
+        root.messages = std.json.Array.init(arena);
+        root.last_context_tokens = 0;
+        root.context_local_tokens = 0;
+        root.last_cache_read = 0;
+        root.compact_transport_failures = 0;
+        root.tui_header_shown = false;
+        root.session_title = null; // re-summarize the now-empty conversation
+        root.ai_title_done = false;
+        root.title_generation +%= 1;
+        root.session_recap = null; // #419: nothing to recap in an empty conversation
+        root.recap_generation +%= 1;
+        root.todos.clearRetainingCapacity();
+        const had_goal = root.goal != null;
+        resetConversationSteering(root);
+        prompts.pinStandingGoal(root, arena);
+        prompts.resetSessionCompacted(root, arena); // #445: the save below empties the file the #410 line names
+        saveSession(root, arena, root.session_name) catch {};
+        setTerminalTitle(out, "Chat", main_mod.g_cwd_display);
+        try out.writeAll("context cleared — fresh conversation\n");
+        if (had_goal) try out.writeAll("(standing goal dropped — /goal to set a new one)\n");
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/new")) {
+        root.messages = std.json.Array.init(arena);
+        root.last_context_tokens = 0;
+        root.context_local_tokens = 0;
+        root.last_cache_read = 0;
+        root.compact_transport_failures = 0;
+        root.todos.clearRetainingCapacity();
+        resetConversationSteering(root);
+        prompts.pinStandingGoal(root, arena);
+        root.session_title = null;
+        root.ai_title_done = false; // let the new session earn its own AI title
+        root.title_generation +%= 1;
+        root.session_recap = null;
+        root.recap_generation +%= 1;
+        root.tui_header_shown = false;
+        root.session_name = try std.fmt.allocPrint(arena, "session-{d}-{d}", .{ unixMs(root.io), proc_identity.selfPid() }); // same-ms uniqueness, see session_run
+        prompts.resetSessionCompacted(root, arena); // #445: after the rename, so the re-arm reads the NEW session
+        saveSession(root, arena, root.session_name) catch {};
+        try out.print("new session → {s}{s}\n", .{ root.session_name, session_ext });
+        try out.flush();
+        return true;
+    }
+    if (std.mem.startsWith(u8, line, "/rename")) {
+        const title = std.mem.trim(u8, line["/rename".len..], " \t");
+        if (title.len == 0) {
+            try out.writeAll("usage: /rename <title>\n");
+        } else {
+            root.session_title = try arena.dupe(u8, title);
+            root.ai_title_done = true; // a manual /rename wins over the auto-titler
+            root.title_generation +%= 1; // discard any still-running AI result
+            saveSession(root, arena, root.session_name) catch {};
+            try out.print("session title → {s}\n", .{title});
+        }
+        try out.flush();
+        return true;
+    }
+    if (std.mem.startsWith(u8, line, "/goal")) {
+        const text = std.mem.trim(u8, line["/goal".len..], " \t");
+        if (text.len == 0 or std.ascii.eqlIgnoreCase(text, "status")) {
+            // bare /goal or /goal status: report the objective + lifecycle state.
+            if (root.goal) |g| {
+                const open = goal_state.openCount(root.todos.items, g.epoch);
+                const parked = goal_state.parkedOpenCount(root.todos.items, g.epoch);
+                const state = if (g.status == .complete) "parked unfinished" else "open"; // a retired goal has no open work, only parked work (#318)
+                const standing = if (g.standing) " (standing)" else ""; // seeded by --goal: only the user retires it (#318)
+                try out.print("\xf0\x9f\x8e\xaf Goal: {s}{s}\nStatus: {s}. Checklist: {d} item(s) {s}. Commands: /goal pause | resume | clear.\n", .{ g.objective, standing, @tagName(g.status), open, state });
+                if (parked > 0) try out.print("(+{d} unfinished item(s) parked from earlier goals \xe2\x80\x94 kept in the session, not steering)\n", .{parked});
+            } else try out.writeAll("No active goal. Set one with /goal <objective>.\n");
+        } else if (std.ascii.eqlIgnoreCase(text, "clear") or std.ascii.eqlIgnoreCase(text, "off")) {
+            if (root.goal == null) {
+                // Nothing to clear: leave an unscoped (epoch-0) working checklist
+                // alone rather than destroying it and steering about a phantom goal.
+                try out.writeAll("No active goal. Set one with /goal <objective>.\n");
+                try out.flush();
+                return true;
+            }
+            const open = goal_state.openCount(root.todos.items, goal_state.currentEpoch(root.goal));
+            root.goal = null; // the checklist PARKS with the goal (#318): items keep their epoch and stay in the session, they just stop being current
+            goal_state.resetCompletionGate(root);
+            root.goal_note_fp = 0;
+            prompts.pinStandingGoal(root, arena);
+            if (root.tracer) |t| t.note("goal", "cleared");
+            saveSession(root, arena, root.session_name) catch {};
+            if (open > 0) {
+                root.pending_goal_note = try goal_state.clearedNote(arena, open);
+                try out.print("Goal cleared \xe2\x80\x94 checklist parked ({d} unfinished item(s) kept in the session, no longer steering). Future turns will not get goal steering.\n", .{open});
+            } else try out.writeAll("Goal cleared. Future turns will not get goal steering.\n");
+        } else if (std.ascii.eqlIgnoreCase(text, "pause")) {
+            if (root.goal) |*g| {
+                g.status = .paused;
+                g.updated_ms = unixMs(root.io);
+                prompts.pinStandingGoal(root, arena);
+                saveSession(root, arena, root.session_name) catch {};
+                try out.print("Goal paused: {s} - turns no longer get goal steering. /goal resume to continue.\n", .{g.objective});
+            } else try out.writeAll("No active goal to pause. Set one with /goal <objective>.\n");
+        } else if (std.ascii.eqlIgnoreCase(text, "resume")) {
+            if (root.goal) |*g| {
+                g.status = .active;
+                g.updated_ms = unixMs(root.io);
+                root.goal_note_fp = 0; // re-state the note on the next turn, not a stale-suppressed repeat
+                prompts.pinStandingGoal(root, arena);
+                saveSession(root, arena, root.session_name) catch {};
+                try out.print("\xf0\x9f\x8e\xaf Goal resumed: {s} - steering every turn again.\n", .{g.objective});
+            } else try out.writeAll("No goal to resume. Set one with /goal <objective>.\n");
+        } else {
+            // The whole state transition (new epoch above every parked one,
+            // adopt-or-supersede, gate + fingerprint resets) is
+            // goal_flow.applyGoalSet; this handler only reports it.
+            const res = goal_flow.applyGoalSet(root, try arena.dupe(u8, text), unixMs(root.io));
+            prompts.pinStandingGoal(root, arena);
+            if (res.superseded) |old| {
+                // Replacement is a supersession boundary (#318): the old
+                // checklist parks (retained, no longer current) and a one-shot
+                // note tells the model not to treat inherited items as
+                // authorization to keep going.
+                root.pending_goal_note = try goal_state.supersededNote(arena, old.objective, res.parked_open);
+                if (root.tracer) |t| t.note("goal", "replaced");
+                if (res.parked_open > 0) try out.print("(superseded \"{s}\" \xe2\x80\x94 parked {d} unfinished checklist item(s), kept in the session)\n", .{ old.objective, res.parked_open });
+            } else if (root.tracer) |t| t.note("goal", "set");
+            saveSession(root, arena, root.session_name) catch {};
+            // Only a STANDING goal (--goal) survives the model's own
+            // attempt_completion; goal_flow.zig:244 lets a typed /goal retire
+            // itself. Promising "until /goal pause or /goal clear" for both was
+            // a lifetime the retirable kind does not have.
+            const lifetime: []const u8 = if (root.goal) |g|
+                (if (g.standing) "it steers every turn for the whole session; only you can end it (/goal pause or /goal clear)" else "it steers every turn until the objective is verifiably done, or you pause or clear it")
+            else
+                "it steers every turn until the objective is verifiably done, or you pause or clear it";
+            try out.print("\xf0\x9f\x8e\xaf Goal set: {s} \xe2\x80\x94 starting now (tracked as a live checklist; {s}).\n", .{ text, lifetime });
+        }
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/loop")) {
+        // "stops it when the time is up" overpromised: the deadline is checked
+        // between turns, so a long turn runs to completion past it.
+        try out.writeAll("usage: /loop [30m] <prompt> — run an autonomous plan→act→verify pass. A leading 30s/30m/2h paces the run and stops it at the first turn boundary after the time is up.\n");
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/review")) {
+        try out.writeAll("usage: /review <target or instructions> — one isolated read-only review pass.\n");
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/bash") or std.mem.startsWith(u8, line, "/bash ")) {
+        const cmd = std.mem.trim(u8, line["/bash".len..], " \t\r\n");
+        if (cmd.len == 0) {
+            try out.writeAll("usage: /bash <command>\n");
+            try out.flush();
+            return true;
+        }
+        var input_obj: std.json.ObjectMap = .empty;
+        try input_obj.put(arena, "command", .{ .string = cmd });
+        const call: ToolCall = .{ .id = "slash-bash", .name = "bash", .input = .{ .object = input_obj } };
+        if (try root.gateTool(call)) |denied| {
+            try out.print("{s}\n", .{denied.text});
+            try out.flush();
+            return true;
+        }
+        const result = execTool(.{
+            .gpa = root.gpa,
+            .io = root.io,
+            .client = root.client,
+            .provider = root.provider,
+            .registry = root.registry,
+            .from_sub = false,
+            .approvals = root.approvals,
+            .tracer = root.tracer,
+            .snapshots = root.snapshots,
+            .tools_used = &root.tools_used,
+        }, call);
+        defer root.gpa.free(result.text);
+        try out.writeAll(result.text);
+        if (result.text.len == 0 or result.text[result.text.len - 1] != '\n') try out.writeAll("\n");
+        try out.flush();
+        return true;
+    }
+    if (std.mem.startsWith(u8, line, "/agents promote")) {
+        const personal = std.mem.indexOf(u8, line, "--personal") != null or std.mem.indexOf(u8, line, "--global") != null;
+        try out.print("{s}promoting local champions{s} → {s} tier (from {s})\n", .{ style.bold, style.reset, if (personal) "personal ~/.harness/agents" else "private ./.harness/agents", trace.trajectories_dir });
+        const n = promoteAgents(root.io, root.gpa, out, fleet.g_home, personal, false);
+        if (n > 0) try out.print("{s}✓ promoted {d} niche(s) — they load on next start{s}\n", .{ style.green, n, style.reset });
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/agents")) {
+        try out.print("{s}agent types{s} — MAP-Elites niches: builtins + {s}/*.md|*.toml (file shadows builtin); spawn via subagent agent:\"<name>\"\n", .{ style.bold, style.reset, fleet.agents_dir });
+        for (fleet.g_agent_types) |t| {
+            const fp = promptFingerprint(t.prompt);
+            try out.print("  {s}{s:<14}{s} {s} {s}{s}{s}", .{
+                style.accent,
+                t.name,
+                style.reset,
+                if (t.builtin) "builtin" else "file   ",
+                style.dim,
+                &fp,
+                style.reset,
+            });
+            if (t.score) |sc| try out.print(" {s}score {d:.2}{s}", .{ style.green, sc, style.reset });
+            // #292: surface a persona's operational pins (else only the .md shows them).
+            if (t.model) |m| try out.print(" {s}model={s}{s}", .{ style.dim, m, style.reset });
+            if (t.tier) |x| try out.print(" {s}tier={s}{s}", .{ style.dim, x.label(), style.reset });
+            if (t.effort) |e| try out.print(" {s}effort={s}{s}", .{ style.dim, @tagName(e), style.reset });
+            if (t.isolation) |i| try out.print(" {s}isolation={s}{s}", .{ style.dim, @tagName(i), style.reset });
+            try out.print("  {s}\n", .{t.desc});
+        }
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/animation") or std.mem.startsWith(u8, line, "/animation ")) {
+        const arg = std.mem.trim(u8, line["/animation".len..], " ");
+        if (arg.len == 0) {
+            const current: []const u8 = if (anim.g_anim_off) "off" else if (anim.g_anim_random) "random" else anim.anims[anim.g_anim_index].name;
+            try out.print("{s}thinking animations{s} (current: {s}{s}{s}) — /animation <name> picks one, persists to {s}\n", .{ style.bold, style.reset, style.accent, current, style.reset, Approvals.settings_path });
+            for (anim.anims) |a| {
+                try out.print("  {s}{s:<12}{s} {s}  preview: ", .{ style.accent, a.name, style.reset, a.desc });
+                try a.frame(out, 3);
+                try out.writeAll("\n");
+            }
+            try out.print("  {s}{s:<12}{s} a different one each request\n  {s}{s:<12}{s} no animation\n", .{ style.accent, "random", style.reset, style.accent, "off", style.reset });
+            try out.flush();
+            return true;
+        }
+        if (std.mem.eql(u8, arg, "off")) {
+            anim.g_anim_off = true;
+            anim.g_anim_random = false;
+        } else if (std.mem.eql(u8, arg, "random")) {
+            anim.g_anim_off = false;
+            anim.g_anim_random = true;
+        } else if (anim.animIndex(arg)) |i| {
+            anim.g_anim_off = false;
+            anim.g_anim_random = false;
+            anim.g_anim_index = i;
+        } else {
+            try out.print("unknown animation '{s}' — /animation lists them\n", .{arg});
+            try out.flush();
+            return true;
+        }
+        const saved = anim.saveAnimationSetting(root.io, root.gpa, arg);
+        try out.print("{s}✓ thinking animation: {s}{s}", .{ style.green, arg, style.reset });
+        if (!anim.g_anim_off and !anim.g_anim_random) {
+            try out.writeAll("  ");
+            try anim.anims[anim.g_anim_index].frame(out, 3);
+        }
+        try out.writeAll("\n");
+        if (!saved) try out.print("{s}warning: could not persist to {s} — lasts only this session{s}\n", .{ style.yellow, Approvals.settings_path, style.reset });
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/theme") or std.mem.startsWith(u8, line, "/theme ")) {
+        const arg = std.mem.trim(u8, line["/theme".len..], " ");
+        if (arg.len == 0) {
+            const current: []const u8 = if (anim.g_theme) |i| anim.themes[i].name else "off";
+            try out.print("{s}color themes{s} (current: {s}{s}{s}) — /theme <name> applies + persists, /theme off resets to your terminal default\n", .{ style.bold, style.reset, style.accent, current, style.reset });
+            for (anim.themes) |t| try out.print("  {s}{s:<12}{s} {s}\n", .{ style.accent, t.name, style.reset, t.desc });
+            try out.print("  {s}{s:<12}{s} terminal default (no theme)\n", .{ style.accent, "off", style.reset });
+            try out.flush();
+            return true;
+        }
+        if (std.ascii.eqlIgnoreCase(arg, "off") or std.ascii.eqlIgnoreCase(arg, "none")) {
+            if (anim.g_theme != null) out.writeAll(anim.theme_reset) catch {};
+            anim.g_theme = null;
+        } else if (anim.themeIndex(arg)) |i| {
+            anim.g_theme = i;
+            out.writeAll(anim.themes[i].seq) catch {};
+            out.flush() catch {};
+        } else {
+            try out.print("unknown theme '{s}' — /theme lists them\n", .{arg});
+            try out.flush();
+            return true;
+        }
+        const saved = anim.saveThemeSetting(root.io, root.gpa, arg);
+        const shown: []const u8 = if (anim.g_theme) |i| anim.themes[i].name else "off";
+        try out.print("{s}✓ theme: {s}{s}\n", .{ style.green, shown, style.reset });
+        if (!saved) try out.print("{s}warning: could not persist to {s} — lasts only this session{s}\n", .{ style.yellow, Approvals.settings_path, style.reset });
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/hooks")) {
+        try out.print("{s}codedb guard{s} (built-in, issue #626): {s} — blocks bash grep/sed/cat/wc on indexed source files and redirects to the codedb tool; GRAFF_NO_CODEDB_GUARD=1 disables.\n", .{ style.bold, style.reset, if (main_mod.g_codedb_guard) "on" else "off" });
+        if (main_mod.g_hooks.total() == 0) {
+            try out.print("no lifecycle hooks. Add them to {s}:\n  {s}{{\"hooks\": {{\"pre_tool\": [{{\"match\": \"bash\", \"command\": \"./guard.sh\"}}]}}}}{s}\n  events: pre_tool (exit 2 blocks, stderr → model) · post_tool · turn_end; loaded at startup\n", .{ Approvals.settings_path, style.dim, style.reset });
+            try out.flush();
+            return true;
+        }
+        try out.print("{s}lifecycle hooks{s} (from {s}; event JSON on stdin, pre_tool exit 2 blocks):\n", .{ style.bold, style.reset, Approvals.settings_path });
+        inline for (.{ "pre_tool", "post_tool", "turn_end" }) |ev| {
+            for (@field(main_mod.g_hooks, ev)) |h| {
+                try out.print("  {s}{s:<9}{s} match {s}{s:<16}{s} {d}ms  {s}\n", .{ style.accent, ev, style.reset, style.dim, h.match, style.reset, h.timeout_ms, h.command });
+            }
+        }
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/skills") or std.mem.startsWith(u8, line, "/skills ")) {
+        const rest = std.mem.trim(u8, line["/skills".len..], " ");
+        if (std.mem.startsWith(u8, rest, "remove ")) {
+            const name = std.mem.trim(u8, rest["remove ".len..], " ");
+            if (skillIndex(name)) |i| {
+                if (main_mod.g_skill_disabled[i]) {
+                    try out.print("{s} is already disabled\n", .{name});
+                } else {
+                    main_mod.g_skill_disabled[i] = true;
+                    const saved = saveSkillSetting(root.io, root.gpa, name, false);
+                    try out.print("{s}✓ {s} disabled{s} — ignored even when its binaries are on PATH (webfetch falls back, no context note); /skills add {s} re-enables\n", .{ style.green, name, style.reset, name });
+                    if (!saved) try out.print("{s}warning: could not persist to {s} — the opt-out lasts only this session{s}\n", .{ style.yellow, Approvals.settings_path, style.reset });
+                }
+                try out.flush();
+                return true;
+            }
+            // Markdown skills use the same {"skills": {"<name>": false}} key.
+            if (try skill_docs_render.handleRemove(root.io, root.gpa, arena, name, out)) return true;
+            try out.print("unknown skill: {s} — /skills lists both kinds\n", .{name});
+            try out.flush();
+            return true;
+        }
+        if (std.mem.startsWith(u8, rest, "add ")) {
+            const name = std.mem.trim(u8, rest[4..], " ");
+            for (skills_registry) |sk| {
+                if (!std.mem.eql(u8, sk.name, name)) continue;
+                if (skillDisabled(sk.name)) {
+                    main_mod.g_skill_disabled[skillIndex(sk.name).?] = false;
+                    const saved = saveSkillSetting(root.io, root.gpa, sk.name, true);
+                    try out.print("{s}✓ {s} re-enabled{s}{s}\n", .{ style.green, sk.name, style.reset, if (skillInstalled(root.io, sk)) " — restart the harness to add its context note" else "" });
+                    if (!saved) try out.print("{s}warning: could not persist to {s}{s}\n", .{ style.yellow, Approvals.settings_path, style.reset });
+                    if (skillInstalled(root.io, sk)) {
+                        try out.flush();
+                        return true;
+                    }
+                    // not installed: fall through to the installer below
+                }
+                if (skillInstalled(root.io, sk)) {
+                    try out.print("{s} is already installed\n", .{sk.name});
+                    try out.flush();
+                    return true;
+                }
+                try out.print("installing {s}{s}{s}: {s}{s}{s}\n", .{ style.accent, sk.name, style.reset, style.dim, sk.install, style.reset });
+                try out.flush();
+                // The user typed the install command themselves — that's the
+                // consent. Interactive sessions keep stdin for a possible sudo
+                // prompt; --yolo promised not to prompt, so its child receives
+                // the null device instead of inheriting the controlling TTY
+                // (issue #271). Progress still streams through stdout/stderr.
+                const yolo = if (root.approvals) |approvals| approvals.yolo else false;
+                var child = std.process.spawn(root.io, .{
+                    .argv = &.{ "/bin/sh", "-c", sk.install },
+                    .stdin = if (yolo) .ignore else .inherit,
+                }) catch |err| {
+                    try out.print("failed to launch installer: {t}\n", .{err});
+                    try out.flush();
+                    return true;
+                };
+                const term = child.wait(root.io) catch {
+                    try out.writeAll("installer did not exit cleanly\n");
+                    try out.flush();
+                    return true;
+                };
+                const ok = term == .exited and term.exited == 0 and skillInstalled(root.io, sk);
+                if (ok) {
+                    try out.print("{s}✓ {s} installed{s} — usable via bash now; restart the harness to add its context note\n", .{ style.green, sk.name, style.reset });
+                } else {
+                    try out.print("{s}{s} install did not complete{s} — run it manually: {s}\n", .{ style.yellow, sk.name, style.reset, sk.install });
+                }
+                try out.flush();
+                return true;
+            }
+            // Not a companion: a markdown skill hidden by an earlier
+            // `/skills remove` comes back by clearing that opt-out.
+            if (try skill_docs_render.handleAdd(root.io, root.gpa, arena, name, out)) return true;
+            try out.print("unknown skill: {s} — /skills lists both kinds\n", .{name});
+            try out.flush();
+            return true;
+        }
+        // Markdown skills first (SKILL.md playbooks), then the companions.
+        try skill_docs_render.printSection(root.io, arena, out);
+        try out.print("{s}companions{s} — optional companion tools (codex-style; one context line each when installed)\n", .{ style.bold, style.reset });
+        for (skills_registry) |sk| {
+            const inst = skillInstalled(root.io, sk);
+            const disabled = skillDisabled(sk.name);
+            const state: []const u8 = if (disabled) "disabled     " else if (inst) "installed    " else "not installed";
+            try out.print("  {s}{s:<8}{s} {s}{s}{s}  {s}\n", .{
+                style.accent,                                                         sk.name, style.reset,
+                if (disabled) style.yellow else if (inst) style.green else style.dim, state,   style.reset,
+                sk.desc,
+            });
+        }
+        try out.writeAll("  install/enable: /skills add <name> · disable: /skills remove <name>\n");
+        try out.flush();
+        return true;
+    }
+    if (std.mem.eql(u8, line, "/plan")) {
+        main_mod.plan_mode = !main_mod.plan_mode;
+        if (main_mod.plan_mode) {
+            try out.print("plan mode {s}on{s} — read-only: the agent explores and proposes; writes/edits/mutating bash are denied. /plan again to execute.\n", .{ style.accent, style.reset });
+        } else {
+            try out.writeAll("plan mode off — tools may modify things again (normal gating applies)\n");
+        }
+        try out.flush();
+        return true;
+    }
+    return false;
+}

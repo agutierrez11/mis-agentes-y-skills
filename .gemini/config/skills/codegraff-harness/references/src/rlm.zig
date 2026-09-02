@@ -1,0 +1,263 @@
+//! Default `rlm` tool: one programmatic-tool-calling REPL per call (ADR 0022).
+//!
+//! On unless `--old` / `--no-rlm` / `GRAFF_OLD=1` / `GRAFF_RLM=0`. `--rlm`
+//! and `GRAFF_RLM=1` force it back on. Host functions: `read_file`, `codedb`
+//! (real graff tools), `sleep_ms` (overlap proof), `llm_query` (RLM tools-off
+//! sub-LM), `print` (answer), plus loaded MCP names (ADR 0029). Closed literal
+//! calls launch as the `code` argument streams (spec-ptc) and again at exec.
+
+const std = @import("std");
+const Io = std.Io;
+const Value = std.json.Value;
+const Allocator = std.mem.Allocator;
+
+const spec_ptc = @import("spec_ptc.zig");
+const tools = @import("tools.zig");
+const ToolCtx = tools.ToolCtx;
+const ToolOutput = tools.ToolOutput;
+const no_local_tools = @import("no_local_tools.zig");
+const exec_mod = @import("exec.zig");
+const rlm_query = @import("rlm_query.zig");
+const rlm_spec = @import("rlm_spec.zig");
+const rlm_mcp = @import("rlm_mcp.zig");
+const rlm_reduce = @import("rlm_reduce.zig");
+const mcp_shapes = @import("mcp_shapes.zig");
+
+pub const tool_name = "rlm";
+pub const tool_desc = "Programmatic tool calling (RLM + sPTC). Functions ARE this session's tools. Literal read_file/codedb/bash/webfetch/sleep_ms/llm_query/subagent start as the script streams. Binds persist. subagent(\"task\") is sidecar-only (keep the critical-path next step local). Loaded MCP names are host functions after load_tool_schemas; each(arr, tool, field) maps a JSON array; len(x)/project(x, field) slim it. print() is the answer. Prefer one rlm over N tool calls.";
+/// --lean catalog desc: same contract, no REPL essay. maybeAppend is after
+/// compactLeanSpecs, so this is the one-shot wire text.
+pub const lean_tool_desc = "Batch independent read_file/codedb/bash here. print(read_file(\"p\")) returns the file — do not catalog-read it again. Then edit_file/write_file/bash as catalog tools. Literal calls start as it streams. Binds persist. Loaded MCP names are host functions after load_tool_schemas.";
+pub const tool_schema =
+    \\{"type": "object", "properties": {"code": {"type": "string", "description": "Python-like script: name = read_file(\"path\") / codedb(\"command\") / bash(\"cmd\") / sleep_ms(ms) / llm_query(\"prompt\") / subagent(\"task\") / loaded mcp__server__tool(); each(arr, tool, field) maps a JSON array; len(x) and project(x, field) slim it; print(...) is the result. Assignments persist across rlm calls."}}, "required": ["code"]}
+;
+
+/// Process-global: on by default. `--old` / `--no-rlm` turn it off; `--rlm`
+/// turns it on. Never flipped mid-session. Keep in sync with
+/// rlm_spec.available (`sync`) so the SSE path can see it without importing
+/// this file (exec.zig would cycle through Agent).
+pub var available: bool = true;
+/// True after `--rlm` / `--old` / `--no-rlm` so env knobs cannot clobber CLI.
+pub var cli_set: bool = false;
+
+pub fn sync() void {
+    rlm_spec.available = available;
+    rlm_spec.run_host = runHost;
+}
+
+/// Last CLI flag wins. Marks `cli_set` so GRAFF_RLM / GRAFF_OLD stay off this path.
+pub fn setFromCli(on: bool) void {
+    available = on;
+    cli_set = true;
+    sync();
+    if (on) @import("native_fold.zig").showcaseFromCli() else @import("native_fold.zig").resetRlmDiscovery();
+}
+
+pub fn resetLive(gpa: Allocator, io: Io) void {
+    sync();
+    rlm_spec.resetLive(gpa, io);
+    rlm_spec.resetBinds(gpa, io);
+}
+
+pub fn feedLive(ctx: ToolCtx, delta: []const u8) void {
+    sync();
+    rlm_spec.feedLive(ctx, delta);
+}
+
+/// Append `rlm` after the lean/no-local filters so a later showcase can
+/// put the spec on the catalog tail. Folded and unlisted until `--rlm`,
+/// a wide native batch, context ≥50% of compactAt, or an explicit load
+/// (ADR 0030). No-op when `--old` or embedder mode stripped host tools.
+pub fn maybeAppend(comptime Spec: type, arena: Allocator, specs: []const Spec) ![]const Spec {
+    sync();
+    if (!available or no_local_tools.enabled) return specs;
+    for (specs) |s| if (std.mem.eql(u8, s.name, tool_name)) return specs;
+    const buf = try arena.alloc(Spec, specs.len + 1);
+    @memcpy(buf[0..specs.len], specs);
+    buf[specs.len] = .{ .name = tool_name, .desc = if (no_local_tools.lean) lean_tool_desc else tool_desc, .schema = tool_schema };
+    return buf;
+}
+
+pub fn exec(ctx: ToolCtx, input: Value) !ToolOutput {
+    sync();
+    if (!available) return .{ .text = try ctx.gpa.dupe(u8, "rlm is off — pass --rlm or drop --old"), .is_error = true };
+    if (no_local_tools.enabled) return .{ .text = try ctx.gpa.dupe(u8, "rlm is a host tool and is disabled under --no-local-tools"), .is_error = true };
+    const code = tools.strField(input, "code") orelse return tools.missingArg(ctx.gpa, "code");
+    return runScript(ctx, code);
+}
+
+const Binding = rlm_spec.Binding;
+
+pub fn runScript(ctx: ToolCtx, code: []const u8) !ToolOutput {
+    sync();
+    var arena_state = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var claimed = std.StringHashMap(ToolOutput).init(ctx.gpa);
+    defer {
+        var cit = claimed.iterator();
+        while (cit.next()) |e| ctx.gpa.free(e.value_ptr.text);
+        claimed.deinit();
+    }
+    rlm_spec.takeLive(ctx, &claimed, arena);
+
+    const stmts = try spec_ptc.splitStatements(arena, code);
+
+    const calls = try spec_ptc.extractCalls(arena, stmts);
+    try speculate(ctx, arena, calls, &claimed);
+
+    var binds: std.ArrayList(Binding) = .empty;
+    try rlm_spec.seedBinds(ctx.gpa, ctx.io, arena, &binds);
+    defer rlm_spec.commitBinds(ctx.gpa, ctx.io, binds.items) catch {};
+    var printed: std.ArrayList(u8) = .empty;
+    defer printed.deinit(ctx.gpa);
+
+    for (stmts) |stmt| {
+        if (try evalStmt(ctx, arena, stmt, binds.items, &claimed, &printed, &binds)) |err| {
+            return .{ .text = err, .is_error = true };
+        }
+    }
+    if (printed.items.len == 0) return .{ .text = try ctx.gpa.dupe(u8, "(rlm: script produced no print())") };
+    return .{ .text = try printed.toOwnedSlice(ctx.gpa) };
+}
+
+fn speculate(ctx: ToolCtx, arena: Allocator, calls: []const spec_ptc.Call, claimed: *std.StringHashMap(ToolOutput)) !void {
+    if (calls.len == 0) return;
+    var uniq: std.ArrayList(spec_ptc.Call) = .empty;
+    var seen = std.StringHashMap(void).init(arena);
+    for (calls) |c| {
+        const key = try c.key(arena);
+        if (claimed.contains(key)) continue;
+        if (try seen.fetchPut(key, {})) |_| continue;
+        try uniq.append(arena, c);
+    }
+    if (uniq.items.len == 0) return;
+    const futs = try arena.alloc(Io.Future(ToolOutput), uniq.items.len);
+    const keys = try arena.alloc([]const u8, uniq.items.len);
+    for (uniq.items, futs, keys) |c, *fut, *key| {
+        key.* = try c.key(arena);
+        fut.* = ctx.io.async(runHost, .{ ctx, c });
+    }
+    for (futs, keys) |*fut, key| {
+        const out = fut.await(ctx.io);
+        try claimed.put(key, out);
+    }
+}
+
+fn runHost(ctx: ToolCtx, call: spec_ptc.Call) ToolOutput {
+    if (std.mem.eql(u8, call.name, "sleep_ms")) return runSleep(ctx, call.args_json);
+    if (std.mem.eql(u8, call.name, "llm_query")) return rlm_query.run(ctx, call.args_json);
+    if (std.mem.eql(u8, call.name, "each") or std.mem.eql(u8, call.name, "len") or std.mem.eql(u8, call.name, "project")) {
+        return .{ .text = ctx.gpa.dupe(u8, "rlm: each/len/project need binds, not speculation") catch &.{}, .is_error = true };
+    }
+    var arena_state = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena_state.deinit();
+    const ready = if (rlm_mcp.looksMcp(call.name) or rlm_mcp.resolve(ctx, call.name) != null)
+        switch (rlm_mcp.prepare(ctx, arena_state.allocator(), call)) {
+            .refuse => |r| return r,
+            .run => |c| c,
+        }
+    else
+        call;
+    var parsed = std.json.parseFromSlice(Value, ctx.gpa, ready.args_json, .{}) catch {
+        return .{ .text = ctx.gpa.dupe(u8, "rlm: bad args") catch &.{}, .is_error = true };
+    };
+    defer parsed.deinit();
+    return exec_mod.execTool(ctx, .{ .id = "rlm", .name = ready.name, .input = parsed.value });
+}
+
+fn runSleep(ctx: ToolCtx, args_json: []const u8) ToolOutput {
+    var parsed = std.json.parseFromSlice(Value, ctx.gpa, args_json, .{}) catch {
+        return .{ .text = ctx.gpa.dupe(u8, "rlm: sleep_ms needs ms") catch &.{}, .is_error = true };
+    };
+    defer parsed.deinit();
+    const ms = tools.intField(parsed.value, "ms") orelse 0;
+    const capped: i64 = @min(@max(ms, 0), 5_000);
+    ctx.io.sleep(.fromMilliseconds(capped), .awake) catch {};
+    return .{ .text = std.fmt.allocPrint(ctx.gpa, "slept {d}ms", .{capped}) catch ctx.gpa.dupe(u8, "slept") catch &.{} };
+}
+
+fn evalStmt(
+    ctx: ToolCtx,
+    arena: Allocator,
+    stmt: []const u8,
+    binds: []const Binding,
+    claimed: *std.StringHashMap(ToolOutput),
+    printed: *std.ArrayList(u8),
+    bind_out: *std.ArrayList(Binding),
+) !?[]u8 {
+    switch (try rlm_mcp.evalEach(ctx, arena, stmt, binds, bind_out, runHost)) {
+        .miss => {},
+        .ok => return null,
+        .fail => |e| return e,
+    }
+    switch (try rlm_reduce.evalStmt(arena, ctx.gpa, stmt, binds, bind_out)) {
+        .miss => {},
+        .ok => return null,
+        .fail => |e| return e,
+    }
+    const call = try spec_ptc.extractCall(arena, stmt);
+    if (call) |c| {
+        const key = try c.key(arena);
+        const out = claimed.get(key) orelse runHost(ctx, c);
+        if (out.is_error) return try ctx.gpa.dupe(u8, out.text);
+        if (assignName(stmt)) |nm| try bind_out.append(arena, .{ .name = try arena.dupe(u8, nm), .text = try arena.dupe(u8, out.text) });
+        return null;
+    }
+    if (printArgs(stmt)) |inner| {
+        const text = try renderPrint(ctx, arena, inner, binds, claimed);
+        if (printed.items.len > 0) try printed.append(ctx.gpa, '\n');
+        try printed.appendSlice(ctx.gpa, text);
+        return null;
+    }
+    return try std.fmt.allocPrint(ctx.gpa, "rlm: unsupported statement: {s}", .{stmt});
+}
+
+fn assignName(stmt: []const u8) ?[]const u8 {
+    const eq = std.mem.indexOfScalar(u8, stmt, '=') orelse return null;
+    const lhs = std.mem.trim(u8, stmt[0..eq], " \t");
+    if (lhs.len == 0) return null;
+    return lhs;
+}
+
+fn printArgs(stmt: []const u8) ?[]const u8 {
+    const t = std.mem.trim(u8, stmt, " \t");
+    if (!std.mem.startsWith(u8, t, "print(") or t[t.len - 1] != ')') return null;
+    return t["print(".len .. t.len - 1];
+}
+
+fn renderPrint(ctx: ToolCtx, arena: Allocator, inner: []const u8, binds: []const Binding, claimed: *std.StringHashMap(ToolOutput)) ![]const u8 {
+    const parts = try spec_ptc.splitTopLevel(arena, inner, ',');
+    if (parts.len == 0) return "";
+    var out: std.ArrayList(u8) = .empty;
+    for (parts, 0..) |part, i| {
+        if (i > 0) try out.append(arena, '\n');
+        try out.appendSlice(arena, try renderPrintPart(ctx, arena, part, binds, claimed));
+    }
+    return out.toOwnedSlice(arena);
+}
+
+fn renderPrintPart(ctx: ToolCtx, arena: Allocator, inner: []const u8, binds: []const Binding, claimed: *std.StringHashMap(ToolOutput)) ![]const u8 {
+    const t = std.mem.trim(u8, inner, " \t");
+    if (t.len >= 2 and (t[0] == '"' or t[0] == '\'') and t[t.len - 1] == t[0]) return t[1 .. t.len - 1];
+    if (rlm_reduce.evalExpr(arena, t, binds)) |text| return maybeSlim(arena, text) else |_| {}
+    var i = binds.len;
+    while (i > 0) {
+        i -= 1;
+        if (std.mem.eql(u8, binds[i].name, t)) return maybeSlim(arena, binds[i].text);
+    }
+    if (try spec_ptc.extractCall(arena, t)) |c| {
+        const key = try c.key(arena);
+        if (claimed.get(key)) |hit| return maybeSlim(arena, hit.text);
+        const out = runHost(ctx, c);
+        defer ctx.gpa.free(out.text);
+        if (mcp_shapes.slim(arena, out.text)) |s| return s;
+        return try arena.dupe(u8, out.text);
+    }
+    return try arena.dupe(u8, t);
+}
+
+fn maybeSlim(arena: Allocator, payload: []const u8) []const u8 {
+    return mcp_shapes.slim(arena, payload) orelse payload;
+}

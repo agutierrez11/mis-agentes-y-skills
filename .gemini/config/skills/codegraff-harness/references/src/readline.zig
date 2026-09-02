@@ -1,0 +1,595 @@
+//! The interactive line editor: readLine() reads one input line in raw
+//! terminal mode with history navigation (HistoryNav, #101), tab
+//! completion, bracketed paste, the `@` file picker, drag-and-drop path
+//! insertion, and clipboard image paste (Ctrl-V). Split out of main.zig
+//! (600-line goal). The redraw/setLine/delRange/prevWord/nextWord/addMark
+//! buffer helpers + the wrap/completion/palette math live in input_util.zig
+//! (imported here) to stay under the line goal. main.zig back-imports
+//! Agent + saveSession; the alias here is `main_mod`, not `root`, since
+//! readLine's own first parameter is named `root`.
+
+const std = @import("std");
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
+
+const ansi = @import("ansi.zig");
+const style = &ansi.style;
+
+const terminal = @import("term.zig");
+const tty = terminal.tty;
+const termCols = terminal.termCols;
+const inputPending = terminal.inputPending;
+const inputPendingTimed = terminal.inputPendingTimed;
+
+const pickers = @import("pickers.zig");
+const PickItem = pickers.PickItem;
+const listPicker = pickers.listPicker;
+
+const vision = @import("vision.zig");
+const stageImagePath = vision.stageImagePath;
+const grabClipboardImage = vision.grabClipboardImage;
+
+const input_util = @import("input_util.zig");
+const fillCompletions = input_util.fillCompletions;
+const LineRender = input_util.LineRender;
+const parseDsrCol = input_util.parseDsrCol;
+const typeAheadByte = input_util.typeAheadByte;
+const cleanDroppedPath = input_util.cleanDroppedPath;
+const collectRepoFiles = input_util.collectRepoFiles;
+const isImagePath = input_util.isImagePath;
+const redraw = input_util.redraw;
+const editByte = input_util.editByte; // #396: job-control-aware continuation reads
+const delRange = input_util.delRange;
+const addMark = input_util.addMark;
+const insertImageChip = input_util.insertImageChip;
+const util = @import("util.zig");
+
+const main_mod = @import("main.zig");
+const agent_mod = @import("agent.zig");
+const session = @import("session.zig");
+const Agent = agent_mod.Agent;
+const saveSession = session.saveSession;
+const shutdown_trace = @import("shutdown_trace.zig"); // #364: the quit path's first phase stamp
+const rl_history = @import("readline_history.zig");
+const HistoryNav = rl_history.HistoryNav;
+const PasteStore = @import("readline_paste.zig").Store;
+const replayStep = @import("readline_replay.zig").apply;
+
+/// Read one input line with a tiny raw-mode editor: ↑/↓ walk history,
+/// Tab completes/cycles (models, providers, slash commands), backspace edits,
+/// Ctrl-C cancels the line, Ctrl-D on an empty line is EOF. `buf` is reused
+/// across calls and holds the result (valid until the next call). Returns the
+/// line, or null on EOF. Falls back to a plain buffered line read when stdin
+/// isn't a TTY (pipes, tests). DECSC/DECRC saves/restores the cursor to redraw.
+pub fn readLine(
+    root: *Agent,
+    in: *Io.Reader,
+    out: *Io.Writer,
+    gpa: Allocator,
+    history: *std.ArrayList([]const u8),
+    buf: *std.ArrayList(u8),
+    prompt_text: ?[]const u8,
+) !?[]const u8 {
+    const raw_state = tty.enterRaw(true) orelse return in.takeDelimiter('\n');
+    defer tty.restore(raw_state);
+    buf.clearRetainingCapacity();
+    var cur: usize = 0; // cursor index within buf
+    var nav: HistoryNav = .init(history.items.len); // history + unsent-draft nav (#101)
+    defer if (nav.draft) |d| gpa.free(d);
+    out.writeAll("\x1b[?2004h") catch {}; // terminal wraps pastes in ESC[200~ … ESC[201~
+    defer out.writeAll("\x1b[?2004l") catch {};
+    out.flush() catch {};
+    // Ask the terminal (DSR 6) where input starts; the renderer treats those columns as a fixed prefix
+    // and wraps the input across rows below it. Cursor moves in redraw are all
+    // relative (never an absolute DECSC anchor), so a wrap-induced scroll
+    // shifts the whole block together and never strands the prompt. Typed-
+    // ahead text bytes that race the reply are replayed into the edit loop
+    // below; a typed-ahead escape sequence inside that ~ms window is dropped.
+    // Those replayed bytes went through the tty's CANONICAL line discipline
+    // (they were queued before enterRaw above), so each is normalized by
+    // input_util.typeAheadByte first — see #364.
+    var prompt_col: usize = 1; // 1-based column where the buffer renders
+    var rstate: LineRender = .{}; // rows used + cursor row of the last redraw
+    var pending: std.ArrayList(u8) = .empty;
+    defer pending.deinit(gpa);
+    var pend_i: usize = 0;
+    out.writeAll("\x1b[6n") catch {};
+    out.flush() catch {};
+    dsr: {
+        var esc: [16]u8 = undefined;
+        var n: usize = 0;
+        var in_esc = false;
+        while (true) {
+            // A local terminal answers DSR in a few milliseconds. Do not hold
+            // every prompt for 500ms when a multiplexer drops/delays it: the
+            // main loop's CSI 'R' arm adopts a late reply without losing layout.
+            if (tty.pendingBytes() == 0 and in.buffered().len == 0 and !inputPendingTimed(20)) break :dsr;
+            // #396: a byte landing in this 20ms window while we are in the
+            // background used to reach a bare blocking read → SIGTTIN → stopped.
+            const b = editByte(in) orelse break :dsr;
+            if (!in_esc) {
+                if (b == 0x1b) {
+                    in_esc = true;
+                    n = 0;
+                    continue;
+                }
+                pending.append(gpa, typeAheadByte(b)) catch {}; // #364: a canonical-mode Ctrl-D reaches us as NUL on Linux
+                if (pending.items.len > 64) break :dsr;
+                continue;
+            }
+            if (n == 0 and b != '[') { // Alt-chord typed ahead: drop it
+                in_esc = false;
+                continue;
+            }
+            if (n < esc.len) {
+                esc[n] = b;
+                n += 1;
+            }
+            if (n >= 2 and b >= 0x40 and b <= 0x7e) { // CSI final byte
+                if (b == 'R') { // the reply: ESC [ row ; col R
+                    prompt_col = parseDsrCol(esc[0..n]) orelse 1;
+                    break :dsr;
+                }
+                in_esc = false; // some other CSI typed ahead — drop it
+                n = 0;
+            }
+        }
+    }
+    if (prompt_text) |text| {
+        out.writeAll(text) catch {};
+        prompt_col += std.unicode.utf8CountCodepoints(text) catch text.len;
+        out.flush() catch {};
+    }
+    // Narrow terminal: put input on its own row rather than wrapping in a sliver.
+    if (termCols() < prompt_col + 16) {
+        out.writeAll("\r\n") catch {};
+        out.flush() catch {};
+        prompt_col = 1;
+    }
+    // Tab-completion cycle state.
+    var comp_items: std.ArrayList([]const u8) = .empty;
+    defer comp_items.deinit(gpa);
+    var comp_base: usize = 0;
+    var comp_idx: usize = 0;
+    var comp_active = false;
+
+    // Long pastes are semantic spans: their labels render as attachment chips,
+    // move atomically, and cannot be recreated by typing the same display text.
+    var pastes: PasteStore = .{};
+    defer pastes.deinit(gpa);
+
+    // File paths inserted by the @ picker or a drag-and-drop (plus the
+    // "[Image]" attachment marker): redraw renders these spans highlighted.
+    // Editing inside a span just drops its highlight — the text stays.
+    var marks: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (marks.items) |m| gpa.free(m);
+        marks.deinit(gpa);
+    }
+
+    while (true) {
+        // Replay any text bytes that raced the DSR reply, then read live.
+        const c = if (pend_i < pending.items.len) blk: {
+            const b = pending.items[pend_i];
+            pend_i += 1;
+            break :blk b;
+        } else blk: {
+            // While the input contains `ultracode`, drift the ember shine
+            // across the letters: poll for input with a slower 140ms timeout,
+            // and on each idle tick advance the phase + redraw so the hue
+            // glides at ~7fps rather than flickering.
+            while (main_mod.use_color and util.indexOfIgnoreCase(buf.items, "ultracode") != null) {
+                if (inputPendingTimed(140)) break; // keystroke ready — read it below
+                input_util.g_shine_phase +%= 1;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            }
+            break :blk switch (tty.promptByte(in)) {
+                .byte => |b| b,
+                .eof => return null,
+                // #396: no longer the foreground group. Blocking here anyway is
+                // what stopped a COMPLETED run ("suspended (tty input)") while it
+                // still held raw mode. Give the tty back FIRST, then quit like ^Z.
+                .background => {
+                    shutdown_trace.mark("readline-background: releasing the tty");
+                    tty.releaseTerminal();
+                    tty.noteFromBackground("graff: no longer the foreground job — terminal released, session saved, exiting\n");
+                    saveSession(root, root.arena, root.session_name) catch {};
+                    return null;
+                },
+            };
+        };
+        if (c != 0x09) comp_active = false; // any non-Tab key ends the cycle
+        switch (c) {
+            0x09 => { // Tab: complete, or cycle through matches on repeat
+                if (!comp_active) {
+                    comp_items.clearRetainingCapacity();
+                    comp_base = fillCompletions(gpa, buf.items, &comp_items);
+                    if (comp_items.items.len == 0) continue;
+                    comp_idx = 0;
+                    comp_active = true;
+                } else if (comp_items.items.len > 0) {
+                    comp_idx = (comp_idx + 1) % comp_items.items.len;
+                } else continue;
+                const old_len = buf.items.len;
+                buf.shrinkRetainingCapacity(comp_base);
+                buf.appendSlice(gpa, comp_items.items[comp_idx]) catch {};
+                pastes.edited(gpa, comp_base, old_len, buf.items.len - comp_base);
+                cur = buf.items.len;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            '\r', '\n' => {
+                // The cursor may be mid-block; step past the last input row so
+                // the submitted line and whatever prints next start cleanly.
+                // The second newline leaves a blank-line gutter between the
+                // submitted prompt and the model output, so it is easy to see
+                // where the response starts.
+                if (rstate.rows - 1 > rstate.crow) out.print("\x1b[{d}B", .{rstate.rows - 1 - rstate.crow}) catch {};
+                out.writeAll("\r\n\r\n") catch {};
+                out.flush() catch {};
+                // Expand live semantic paste spans; typed lookalikes stay text.
+                try pastes.expand(gpa, buf);
+                break;
+            },
+            0x01 => { // Ctrl-A → start of line
+                cur = 0;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x05 => { // Ctrl-E → end of line
+                cur = buf.items.len;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x02 => if (cur > 0) { // Ctrl-B → left
+                cur = pastes.left(cur);
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x06 => if (cur < buf.items.len) { // Ctrl-F → right
+                cur = pastes.right(cur, buf.items.len);
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x17, 0x1f => { // Ctrl-W / Ctrl-_ → delete previous word
+                const s = pastes.prevWord(buf.items, cur);
+                if (s < cur) {
+                    pastes.edited(gpa, s, cur, 0);
+                    delRange(buf, s, cur);
+                    cur = s;
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                }
+            },
+            0x15 => if (cur > 0) { // Ctrl-U → delete to start of line
+                pastes.edited(gpa, 0, cur, 0);
+                delRange(buf, 0, cur);
+                cur = 0;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x0b => if (cur < buf.items.len) { // Ctrl-K → delete to end of line
+                pastes.edited(gpa, cur, buf.items.len, 0);
+                buf.shrinkRetainingCapacity(cur);
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x16 => { // Ctrl-V: attach a clipboard image (macOS) at the cursor
+                var mbuf: [224]u8 = undefined;
+                var msg: ?[]const u8 = null;
+                switch (vision.clipboardPasteSource(root.io, gpa, vision.visionCapable(root.provider), builtin.os.tag == .macos, grabClipboardImage)) {
+                    .image => |grab| {
+                        defer grab.release(root.io, gpa); // temp export never outlives the paste
+                        const staged = stageImagePath(root, grab.path);
+                        vision.tracePasteResult(root, grab.flavor, staged); // #350: every paste leaves a receipt
+                        if (staged.isOk()) {
+                            @import("vision_queue.zig").markLastComposer(root);
+                            const at = cur;
+                            insertImageChip(gpa, buf, &cur, &marks, root.pending_image_len);
+                            if (cur > at) pastes.edited(gpa, at, at, cur - at);
+                            redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                        } else {
+                            // No `.no_vision` arm here: clipboardPasteSource
+                            // already answers .no_vision above, so on a
+                            // text-only model the clipboard is never read and
+                            // that prong was unreachable (#349).
+                            msg = vision.stageMessage(&mbuf, staged, "the clipboard image");
+                        }
+                    },
+                    else => |s| {
+                        vision.tracePaste(root, @tagName(s), "none", 0, "");
+                        msg = vision.pasteMessage(s);
+                    },
+                }
+                if (msg) |m| { // feedback below the input, then redraw the prompt+buffer fresh
+                    if (rstate.rows - 1 > rstate.crow) out.print("\x1b[{d}B", .{rstate.rows - 1 - rstate.crow}) catch {};
+                    out.print("\r\n{s}· {s}{s}", .{ style.dim, m, style.reset }) catch {};
+                    root.prompt() catch {};
+                    rstate = .{};
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                }
+            },
+            0x7f, 0x08 => if (cur > 0) { // backspace → delete previous atom
+                const start = pastes.left(cur);
+                pastes.edited(gpa, start, cur, 0);
+                delRange(buf, start, cur);
+                cur = start;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x03 => { // Ctrl-C: clear a non-empty line; on an empty line, quit
+                if (buf.items.len == 0) {
+                    out.writeAll("^C\n") catch {};
+                    out.flush() catch {};
+                    return null;
+                }
+                buf.clearRetainingCapacity();
+                pastes.clear(gpa);
+                cur = 0;
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+            0x1a => { // Ctrl-Z: save the session and quit (like a safe Ctrl-D)
+                out.writeAll("^Z — saving & quit\n") catch {};
+                out.flush() catch {};
+                saveSession(root, root.arena, root.session_name) catch {};
+                return null;
+            },
+            0x04 => { // Ctrl-D: EOF on empty line, else forward-delete
+                if (buf.items.len == 0) {
+                    shutdown_trace.mark("readline-eof (ctrl-d)"); // #364: proves the quit key was SEEN, not just sent
+                    out.writeAll("\n") catch {};
+                    return null;
+                }
+                if (cur < buf.items.len) {
+                    const end = pastes.right(cur, buf.items.len);
+                    pastes.edited(gpa, cur, end, 0);
+                    delRange(buf, cur, end);
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                }
+            },
+            0x1b => { // escape sequence: arrows, Alt/Option chords, CSI
+                // A bare Esc (no byte follows) clears the line — without
+                // this the chord read below would block and silently eat
+                // the next keypress.
+                if (tty.pendingBytes() == 0 and in.buffered().len == 0 and !inputPending()) {
+                    buf.clearRetainingCapacity();
+                    pastes.clear(gpa);
+                    cur = 0;
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    continue;
+                }
+                const b1 = editByte(in) orelse break; // #396: guarded
+                if (b1 == 0x7f or b1 == 0x08) { // Option/Alt+Delete → delete previous word
+                    const s = pastes.prevWord(buf.items, cur);
+                    if (s < cur) {
+                        pastes.edited(gpa, s, cur, 0);
+                        delRange(buf, s, cur);
+                        cur = s;
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    }
+                    continue;
+                }
+                if (b1 == 'b') { // Alt-b → word left
+                    cur = pastes.prevWord(buf.items, cur);
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    continue;
+                }
+                if (b1 == 'f') { // Alt-f → word right
+                    cur = pastes.nextWord(buf.items, cur);
+                    redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    continue;
+                }
+                if (b1 == 'd') { // Alt-d → delete next word
+                    const e = pastes.nextWord(buf.items, cur);
+                    if (e > cur) {
+                        pastes.edited(gpa, cur, e, 0);
+                        delRange(buf, cur, e);
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    }
+                    continue;
+                }
+                if (b1 != '[') continue;
+                // CSI: collect params until a final byte (0x40..0x7e).
+                var params: [16]u8 = undefined;
+                var pn: usize = 0;
+                var final: u8 = 0;
+                while (true) {
+                    const x = editByte(in) orelse break; // #396: guarded
+                    if (x >= 0x40 and x <= 0x7e) {
+                        final = x;
+                        break;
+                    }
+                    if (pn < params.len) {
+                        params[pn] = x;
+                        pn += 1;
+                    }
+                }
+                const ps = params[0..pn];
+                const word_mod = std.mem.indexOfScalar(u8, ps, ';') != null; // 1;3 (alt) / 1;5 (ctrl)
+                switch (final) {
+                    'A' => if (nav.up(gpa, history.items, rl_history.g_history_images.slice(), buf.items, root.pending_image)) |step| { // up → history back; snapshots draft (#101)
+                        replayStep(root, gpa, buf, &cur, &marks, &pastes, step);
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'B' => if (nav.down(history.items, rl_history.g_history_images.slice())) |step| { // down → history forward; restores draft past newest (#101)
+                        replayStep(root, gpa, buf, &cur, &marks, &pastes, step);
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'C' => { // right (word-right with a modifier)
+                        cur = if (word_mod) pastes.nextWord(buf.items, cur) else pastes.right(cur, buf.items.len);
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'D' => { // left (word-left with a modifier)
+                        cur = if (word_mod) pastes.prevWord(buf.items, cur) else pastes.left(cur);
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'H' => {
+                        cur = 0;
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'F' => {
+                        cur = buf.items.len;
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    'R' => { // late DSR cursor-position reply (slow or
+                        // multiplexed terminal missed the 20ms startup
+                        // window): adopt the real input column so the
+                        // horizontal window stays exact instead of the
+                        // column-1 fallback. Same narrow-terminal policy as
+                        // startup: too little room after the prompt → the
+                        // input moves to its own row.
+                        if (std.mem.indexOfScalar(u8, ps, ';')) |semi| {
+                            const col = std.fmt.parseInt(usize, ps[semi + 1 ..], 10) catch 0;
+                            if (col > 0) {
+                                if (termCols() < col + 16) {
+                                    out.writeAll("\r\n") catch {};
+                                    prompt_col = 1;
+                                } else prompt_col = col;
+                            }
+                        }
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                    },
+                    '~' => {
+                        if (std.mem.eql(u8, ps, "200")) { // bracketed paste start
+                            var blob: std.ArrayList(u8) = .empty;
+                            defer blob.deinit(gpa);
+                            while (true) { // read until the ESC[201~ end marker
+                                const x = editByte(in) orelse break; // #396: guarded
+                                blob.append(gpa, x) catch break;
+                                if (std.mem.endsWith(u8, blob.items, "\x1b[201~")) {
+                                    blob.shrinkRetainingCapacity(blob.items.len - 6);
+                                    break;
+                                }
+                            }
+                            var pasted = blob.items;
+                            if (pasted.len > 0 and pasted[pasted.len - 1] == '\n') pasted = pasted[0 .. pasted.len - 1];
+                            const lines = std.mem.count(u8, pasted, "\n") + 1;
+                            const dropped = cleanDroppedPath(gpa, root.home, pasted);
+                            defer if (dropped) |dp| gpa.free(dp);
+                            const drop_exists = if (dropped) |dp| blk: {
+                                Io.Dir.cwd().access(root.io, dp, .{}) catch break :blk false;
+                                break :blk true;
+                            } else false;
+                            if (drop_exists) {
+                                // Drag-and-dropped file: terminals paste the path
+                                // escaped/quoted with a trailing space. An image on a
+                                // vision model is staged as an attachment (like /image
+                                // and Ctrl-V); anything else inlines the cleaned full
+                                // path however long it is.
+                                var staged = false;
+                                var dmsg: ?[]const u8 = null;
+                                var dbuf: [224]u8 = undefined;
+                                if (isImagePath(dropped.?)) {
+                                    const r = stageImagePath(root, dropped.?);
+                                    if (r.isOk()) {
+                                        staged = true;
+                                    } else if (r == .no_vision) {
+                                        dmsg = "this model can't see images — ✓ in /models' vision column shows ones that can; path inlined instead";
+                                    } else {
+                                        // Real numbers, not "missing or >5MB" (#349).
+                                        dmsg = vision.stageMessage(&dbuf, r, "that image");
+                                    }
+                                }
+                                if (staged) {
+                                    @import("vision_queue.zig").markLastComposer(root);
+                                    const at = cur;
+                                    insertImageChip(gpa, buf, &cur, &marks, root.pending_image_len);
+                                    if (cur > at) pastes.edited(gpa, at, at, cur - at);
+                                } else {
+                                    const at = cur;
+                                    const old_len = buf.items.len;
+                                    buf.insertSlice(gpa, cur, dropped.?) catch {};
+                                    if (buf.items.len == old_len + dropped.?.len) {
+                                        pastes.edited(gpa, at, at, dropped.?.len);
+                                        cur += dropped.?.len;
+                                        addMark(gpa, &marks, dropped.?);
+                                    }
+                                }
+                                if (dmsg) |m| { // feedback below the input, then redraw fresh (below)
+                                    if (rstate.rows - 1 > rstate.crow) out.print("\x1b[{d}B", .{rstate.rows - 1 - rstate.crow}) catch {};
+                                    out.print("\r\n{s}· {s}{s}", .{ style.dim, m, style.reset }) catch {};
+                                    root.prompt() catch {};
+                                    rstate = .{};
+                                }
+                            } else if (lines == 1 and pasted.len <= 80) {
+                                const at = cur;
+                                const old_len = buf.items.len;
+                                buf.insertSlice(gpa, cur, pasted) catch {}; // short single-line paste: inline
+                                if (buf.items.len == old_len + pasted.len) {
+                                    pastes.edited(gpa, at, at, pasted.len);
+                                    cur += pasted.len;
+                                }
+                            } else { // multi-line/long: semantic chip, expanded on submit
+                                pastes.insert(gpa, buf, &cur, pasted, lines) catch {};
+                            }
+                            redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                        } else if (std.mem.eql(u8, ps, "3")) { // forward delete
+                            if (cur < buf.items.len) {
+                                const end = pastes.right(cur, buf.items.len);
+                                pastes.edited(gpa, cur, end, 0);
+                                delRange(buf, cur, end);
+                                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                            }
+                        } else if (std.mem.eql(u8, ps, "1") or std.mem.eql(u8, ps, "7")) {
+                            cur = 0;
+                            redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                        } else if (std.mem.eql(u8, ps, "4") or std.mem.eql(u8, ps, "8")) {
+                            cur = buf.items.len;
+                            redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                        }
+                    },
+                    else => {},
+                }
+            },
+            else => if (c >= 0x20) { // printable: insert at cursor
+                // '@' at a word boundary opens a fuzzy file picker over the
+                // repo (cwd walk, dot/build dirs skipped); the picked path is
+                // inserted at the cursor. A literal '@' still types fine —
+                // cancel the picker (esc/ctrl-c), or type it mid-word.
+                if (c == '@' and (cur == 0 or buf.items[cur - 1] == ' ')) {
+                    var files: std.ArrayList([]const u8) = .empty;
+                    defer {
+                        for (files.items) |f| gpa.free(f);
+                        files.deinit(gpa);
+                    }
+                    collectRepoFiles(root.io, gpa, &files);
+                    if (files.items.len > 0) {
+                        var items: std.ArrayList(PickItem) = .empty;
+                        defer items.deinit(gpa);
+                        for (files.items) |f| items.append(gpa, .{ .name = f }) catch {};
+                        const picked = listPicker(root, root.arena, out, "File ›", items.items);
+                        // The alt-screen picker (DECSET 1049) restores the main
+                        // screen and cursor on exit, so the input block and
+                        // rstate still match — just redraw over them below.
+                        if (picked) |idx| {
+                            const at = cur;
+                            const old_len = buf.items.len;
+                            buf.insertSlice(gpa, cur, files.items[idx]) catch {};
+                            if (buf.items.len == old_len + files.items[idx].len) {
+                                pastes.edited(gpa, at, at, files.items[idx].len);
+                                cur += files.items[idx].len;
+                                addMark(gpa, &marks, files.items[idx]);
+                            }
+                        }
+                        redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+                        continue;
+                    }
+                }
+                const at = cur;
+                const old_len = buf.items.len;
+                buf.insert(gpa, cur, c) catch {};
+                if (buf.items.len == old_len + 1) {
+                    pastes.edited(gpa, at, at, 1);
+                    cur += 1;
+                }
+                redraw(out, buf.items, cur, marks.items, &pastes, &rstate, prompt_col);
+            },
+        }
+    }
+
+    const trimmed = std.mem.trim(u8, buf.items, " \t\r");
+    // The staged image is part of the entry's identity, so the same words with
+    // a different attachment are not a duplicate (#108). root.pending_image is
+    // still set here — mainloop consumes it after readLine returns.
+    const images = rl_history.g_history_images.slice();
+    if (trimmed.len > 0 and util.rememberInput(buf.items) and !rl_history.repeatsLast(history.items, images, buf.items, root.pending_image)) {
+        const dup = gpa.dupe(u8, buf.items) catch return buf.items;
+        history.append(gpa, dup) catch return buf.items;
+        // Session-arena backed, like the base64 payload it points at, so this
+        // outlives the entry without a free of its own (#108).
+        rl_history.g_history_images.record(root.arena, history.items.len - 1, root.pending_image);
+    }
+    return buf.items;
+}

@@ -1,0 +1,383 @@
+//! Eval-driven scoring loop and its optional LLM-as-judge scorer.
+//! Tests live in agent_eval_tests.zig.
+
+const std = @import("std");
+const Io = std.Io;
+
+const Agent = @import("agent.zig").Agent;
+const ExecResult = @import("tools.zig").ExecResult;
+const ToolCtx = @import("tools.zig").ToolCtx;
+const ToolOutput = @import("tools.zig").ToolOutput;
+const parseEvalScore = @import("repl_glue.zig").parseEvalScore;
+const utf8Prefix = @import("util.zig").utf8Prefix;
+
+const scoring = @import("scoring.zig");
+const promptFingerprint = scoring.promptFingerprint;
+const providerClass = scoring.providerClass;
+const signScore = scoring.signScore;
+
+const telemetry = @import("telemetry.zig");
+const runCapped = @import("jobs.zig").runCapped;
+const judgeTask = @import("subagent.zig").judgeTask;
+const eval_memory = @import("eval_memory.zig");
+const trace = @import("trace.zig");
+const fleet = @import("fleet.zig");
+const main_mod = @import("main.zig");
+const route_policy = @import("route_policy.zig"); // #372 (shape, role, tier) coordinates on the local capture rows
+const playbook_reflect = @import("playbook_reflect.zig"); // #383 Reflector: one bounded distillation per process, on a target-met eval
+const orch_rows = @import("orchestration_rows.zig"); // the orchestration outcome rides the same score funnel
+const shapes = @import("shapes.zig");
+const failure_evidence = @import("failure_evidence.zig"); // a RED verdict is parked as escalation evidence
+const verify_fingerprint = @import("verify_fingerprint.zig"); // #412 no-progress guard: an unmoved worktree is not re-verified
+
+test {
+    _ = @import("agent_eval_tests.zig");
+}
+
+/// Run the configured --eval scoring command, append the result to the
+/// scores log (.graff/eval-log.tsv), and return a verdict for the model:
+/// score (0-100), best so far, target, and whether the target is met. The
+/// harness runs the command, so the model cannot fake the number. (eval tool)
+pub fn runEval(self: *Agent, note: []const u8) !ExecResult {
+    const cmd = self.eval_cmd orelse return .{
+        .text = "no eval command configured - relaunch graff with --eval <scoring cmd> and --until <N>, or ask the user to set one",
+        .is_error = true,
+    };
+
+    // #412 no-progress guard. The tree the verifier is about to run against is
+    // fingerprinted BEFORE the command runs (the command itself may write), and
+    // when the last verdict was RED over a byte-identical tree the verifier is
+    // not run at all: nothing it could report can have changed, so the whole
+    // scoring command, its judge model call and its output tail are saved and
+    // the model is steered at the real blocker instead. The attempt still
+    // counts - a model that keeps calling eval without editing has to converge
+    // on the iteration cap, not spin for free. Unknown (no repo, git error,
+    // truncated probe) never matches, so the guard fails open.
+    const tree_fp = verify_fingerprint.capture(self.gpa, self.io, cmd);
+    if (verify_fingerprint.skipReverify(self.eval_repair_pending, self.eval_fp, tree_fp)) {
+        self.eval_iter += 1;
+        return .{ .text = try verify_fingerprint.noProgressText(self.arena, self.eval_iter), .is_error = true };
+    }
+
+    // Behavioral commitment (issue #256): the eval-driven loop is the first
+    // production caller of turn_committed/model_mispredicted. The commitment
+    // asserts the loop's own belief - the command will meet the target -
+    // before the command runs, so a later contradiction is provable rather
+    // than reconstructed after the fact. commitment_id is opaque and
+    // per-invocation; the command text and its stdout/stderr are content and
+    // must never reach either typed field (docs/behavioral-trajectories.md).
+    const behavior = if (self.tracer) |tracer| tracer.behavior else null;
+    const eval_turn = if (behavior) |bt| bt.currentTurn() else 0;
+    var commitment_buf: [48]u8 = undefined;
+    const commitment_id = std.fmt.bufPrint(&commitment_buf, "eval-{d}-{d}", .{ eval_turn, self.eval_iter + 1 }) catch "";
+    if (behavior) |bt| bt.recordExpectedAction(eval_turn, commitment_id, .{ .kind = "eval" }, .{ .pass = true }, "eval-driven loop verifier");
+
+    const run = runCapped(self.gpa, self.io, &.{ "/bin/sh", "-c", cmd }, 64 * 1024, 16 * 1024, 0) catch |e| {
+        // The command never ran, so the commitment can never be verified by
+        // the normal exit-code/score path below; resolve it here instead of
+        // leaving a dangling turn_committed that a scorer would misread as
+        // an unresolved success.
+        if (behavior) |bt| bt.recordMisprediction(eval_turn, commitment_id, .{ .pass = true }, .{ .pass = false, .exit = @as(i32, -1) }, "eval command could not run");
+        self.eval_verified = false;
+        self.eval_repair_pending = true;
+        // #412: a command that never ran is not a verdict about the workspace,
+        // and "edit source files" is not the fix for it - disarm the guard so
+        // the next call really does try the command again (and so a fingerprint
+        // left by an earlier RED cannot suppress it).
+        self.eval_fp = null;
+        eval_memory.record(self, note, null, -1, false);
+        return .{ .text = try std.fmt.allocPrint(self.arena, "eval command could not run: {t}", .{e}), .is_error = true };
+    };
+    defer self.gpa.free(run.stdout);
+    defer self.gpa.free(run.stderr);
+    self.eval_iter += 1;
+    const exit_code: i32 = switch (run.term) {
+        .exited => |c| @intCast(c),
+        else => -1,
+    };
+    // #367: a command that prints no parseable score falls back to exit-code
+    // semantics — 0 is a pass, anything else a fail — so pointing --eval at a
+    // plain test runner (`pytest -q`, `zig build test`, `false`) works out of
+    // the box instead of scraping nonsense off its summary line. An explicit
+    // `score: N` line always wins; judges (runJudge) keep parse-only.
+    const parsed = parseEvalScore(run.stdout) orelse parseEvalScore(run.stderr);
+    const exit_derived = parsed == null;
+    const det: ?f64 = parsed orelse if (exit_code == 0) @as(f64, 100) else @as(f64, 0);
+
+    // LLM-as-judge (--judge): an independent subagent inspects the actual
+    // artifacts against the rubric and returns its own 0-100 score. Both
+    // scores must clear the target, so the binding value is their min().
+    // Skip the judge when the deterministic command itself produced no
+    // score - fix that first rather than burn a judge run.
+    const judge: ?f64 = if (self.eval_judge != null and det != null) self.runJudge(self.eval_judge.?, run.stdout, note) else null;
+    const combined: ?f64 = if (self.eval_judge == null)
+        det
+    else if (det != null and judge != null)
+        @min(det.?, judge.?)
+    else
+        null;
+
+    const target_f: f64 = @floatFromInt(self.eval_target);
+    const improved = if (combined) |s| (self.eval_best < 0 or s > self.eval_best) else false;
+    if (combined) |s| {
+        if (self.eval_best < 0 or s > self.eval_best) self.eval_best = s;
+    }
+    const met = if (combined) |s| s >= target_f else false;
+    self.eval_repair_pending = exit_code != 0 or !met;
+    self.eval_verified = !self.eval_repair_pending;
+    // #412: a RED remembers the tree it failed on, so the next eval over that
+    // same tree is skipped; a green forgets it, because the next RED must be
+    // measured against its own tree and never against a stale one.
+    self.eval_fp = if (self.eval_repair_pending) tree_fp else null;
+    // A RED verdict is harness ground truth about a FAILED attempt: park a
+    // capped excerpt so the next escalation decision carries the evidence
+    // (the R0d revision advisory, or an R3 fleet's briefs).
+    if (exit_code != 0 or !met) {
+        var ev_buf: [256]u8 = undefined;
+        const ev = std.fmt.bufPrint(&ev_buf, "eval RED: score {d:.1}/100 (target {d}, exit {d}) — {s}", .{ combined orelse -1.0, self.eval_target, exit_code, utf8Prefix(note, 128) }) catch "eval RED: scoring command failed";
+        failure_evidence.note(shapes.classOf(shapes.rawAsk()), ev);
+    }
+    // A green eval refunds the RED-continuation budget (see grantRepairTurn):
+    // red→repair→green→red progress cycles keep running; only sustained
+    // failure exhausts it.
+    if (self.eval_verified) self.eval_repair_grants = 0;
+    // Resolve the commitment made above: a nonzero exit or an unmet/unparsed
+    // target contradicts "this command will meet the target", so it is a
+    // misprediction. Meeting the target leaves the commitment unresolved by
+    // design - docs/behavioral-trajectories.md: a commitment with no paired
+    // misprediction is itself the success signal.
+    if (behavior) |bt| if (exit_code != 0 or !met)
+        bt.recordMisprediction(eval_turn, commitment_id, .{ .pass = true }, .{ .pass = false, .exit = exit_code }, "target not met");
+    self.appendEvalLog(note, det, judge, combined, exit_code, met) catch {};
+    eval_memory.record(self, note, combined, exit_code, met);
+    // #383 Reflector: a target-met eval is the moment a run is verifiably
+    // finished, so distil it into candidate playbook bullets — ONCE per
+    // process, one tool-less model call on the worker seat. Gated inside on
+    // trace.g_traj, the same null-sink guard the local DGM capture below
+    // uses, which is what keeps agent_eval_tests' stub Agent (undefined
+    // provider/client, and a second eval that DOES meet its target) out of a
+    // live model call.
+    if (met) playbook_reflect.afterEval(self, note, combined orelse 0, run.stdout);
+
+    // The orchestration outcome (§5). This is the same funnel the DGM score
+    // rows use, and for the same reason: an eval verdict is the one place the
+    // harness holds ground truth about whether a run WORKED. If this turn made
+    // an escalation decision, that decision now gets its measured cost and
+    // result — score, calls actually spent, and whether the edit-contract
+    // probe ever saw a diff.
+    //
+    // Gated on `met`, and that gate is load-bearing. An `--until` loop
+    // evaluates repeatedly: red, repair, green. Filing on the FIRST verdict
+    // recorded score 0 for a run that went on to score 100 — observed, on the
+    // very first acceptance run of this feature — which would teach the policy
+    // that the rung it chose had failed when it had succeeded. A run that
+    // never goes green files nothing here and stays uncelled, which is the
+    // same doctrine foldArms applies to every incomplete row: an uncelled
+    // observation is honest, a mis-celled one poisons the cell. The one
+    // failure that DOES get recorded is the one that matters most, and it is
+    // recorded elsewhere — run_budget.exhaustedFatal files score 0,
+    // exhausted:true before the process dies.
+    if (met) if (orch_rows.pending() != null) if (combined) |s| {
+        if (s >= 0 and s <= 100)
+            orch_rows.flushPending(s / 100.0, if (self.run_budget) |b| b.used() else 0, 0, false, &promptFingerprint(cmd));
+    };
+
+    // Feed the eval-driven score into the fleet (docs/hyperagents.md §9.B):
+    // on a NEW BEST, submit the genome (this agent's persona) with its achieved
+    // score on the pinned eval set (the eval command's fingerprint). Without this
+    // the score only ever reached .graff/eval-log.tsv and the DGM/fleet never saw
+    // real eval-driven work — only darwincode/JSON-proto runs ever submitted.
+    if (combined) |s| {
+        if (improved and s > 0) { // s>0: skip the initial-state / total-failure 0 (don't pollute the cell mean)
+            if (s > 100) {
+                // Review F8: parseEvalScore does NOT bound its result (a stray
+                // "score: 9000" line parses as 9000) — an out-of-[0,100] score
+                // must never be signed or submitted. Skip the score AND its
+                // paired propose/submit, mirroring mainloop /score's explicit
+                // rejection, so the submit counter stays in sync with stored
+                // scores. The local eval verdict below still shows the number.
+                if (self.tracer) |tr| tr.note("fleet", "score skipped: eval score outside [0,100]");
+            } else if (trace.g_traj != null or telemetry.g_telem != null) {
+                // Skipped entirely when neither sink exists (also keeps stub
+                // agents in tests from touching provider/systemPrompt).
+                const sys = self.systemPrompt();
+                const genome_fp = promptFingerprint(sys);
+                const esh_fp = promptFingerprint(cmd);
+                const genome: []const u8 = &genome_fp;
+                const esh: []const u8 = &esh_fp;
+                const pclass = providerClass(self.provider.model);
+                // --niche tags this score's cell. Without it the score lands in the
+                // anonymous "" niche, which pullElites can never match to a builtin —
+                // so an eval session that wants to grow a champion must name its role.
+                // Truncated to 64 chars and sanitized (tab/newline/CR → ' ', review
+                // F7) BEFORE signing (fleetEvent's own niche cap, same as mainloop
+                // /score) so signed bytes equal ingested bytes.
+                var niche_buf: [64]u8 = undefined;
+                const niche = scoring.sanitizeMetaField(&niche_buf, utf8Prefix(self.eval_niche, 64));
+                // SCORE SCALE CONTRACT (issue #168 Gap 4): local UX stays 0-100
+                // (the /100 verdicts below, eval_best, eval_target), but every
+                // score that leaves this function — the local archive row and
+                // the signed envelope alike — is [0,1].
+                const s01 = s / 100.0;
+                // Local DGM capture, deliberately OUTSIDE the telemetry gate:
+                // the same genome + score the fleet events carry also lands in
+                // .graff/trajectories, so `/agents promote` can grow a champion
+                // from eval-driven runs with zero egress. Until this block the
+                // eval loop fed only the backend — a default-local-privacy
+                // session scored work the local promote could never see. The
+                // kind:"eval" row carries the niche tag: promoteAgents reads
+                // niche off non-prompt/non-score records only. Same niche gate
+                // as the backend path — a "" cell is unpromotable either way.
+                // #372: the same two rows also carry the (shape, role, tier,
+                // model) coordinates the learned tier policy partitions on.
+                // An eval loop instantiates no catalog shape, so its cell is
+                // (adhoc, <the slot --niche names>); the rung is read back off
+                // whatever model this session actually ran.
+                const rrole = route_policy.roleOf("", niche);
+                const rtier = route_policy.tierLabelFor(self.provider.id, self.provider.model);
+                if (niche.len > 0) if (trace.g_traj) |traj| {
+                    traj.capturePrompt(genome_fp, sys);
+                    traj.node(.{ .kind = "eval", .prompt_sha = genome, .niche = niche, .eval_set_hash = esh, .provider_class = pclass, .shape = "adhoc", .role = rrole, .tier = rtier, .model = self.provider.model, .t = traj.elapsedMs() });
+                    traj.node(.{ .kind = "score", .prompt_sha = genome, .score = s01, .niche = niche, .eval_set_hash = esh, .provider_class = pclass, .shape = "adhoc", .role = rrole, .tier = rtier, .model = self.provider.model, .t = traj.elapsedMs() });
+                };
+                // Auto-learn: evolution is a default part of the harness, not
+                // a command. A target-met NEW BEST is the learning moment —
+                // the work just verified green — so recompute this project's
+                // champions from the archive right now and hot-reload them,
+                // making the very next spawn run the evolved genome with no
+                // restart and no /agents promote. Auto mode never overwrites
+                // a hand-written persona (fleet.promoteAgents); the manual
+                // command remains for --personal tiers and forced overwrites.
+                if (met and niche.len > 0 and main_mod.g_fleet and !self.sub) {
+                    var pout: Io.Writer.Allocating = .init(self.arena);
+                    const n = fleet.promoteAgents(self.io, self.gpa, &pout.writer, fleet.g_home, false, true);
+                    if (n > 0) {
+                        fleet.g_agent_types = fleet.loadAgentTypes(self.io, self.arena, fleet.g_home);
+                        self.say("  auto-promoted {d} champion persona(s) → {s} (live now)\n", .{ n, fleet.agents_dir }) catch {};
+                        if (self.tracer) |tr| tr.note("fleet", "auto-promoted champions after green eval");
+                    }
+                }
+                if (telemetry.g_telem) |t| {
+                    const run_id: []const u8 = &scoring.g_run_id;
+                    // Genome-send (graff-dgm.md §B): the eval genome is this agent's own
+                    // persona, never spawned via runSub, so its prompt_text never reached
+                    // the worker. A cell only promotes when harness_scores joins to a
+                    // harness_genomes row, so ride the genome text over on a `propose`
+                    // (deduped by prompt_sha) before the score — else a winning eval cell
+                    // has nothing to serve. Gated on a niche: a "" cell is unpromotable.
+                    // Oversized genomes skip the propose (review F6): the server verifies
+                    // the fingerprint over the carried text, so a truncated genome would
+                    // be dropped there anyway.
+                    if (niche.len > 0) {
+                        if (sys.len <= telemetry.Telemetry.max_propose_text)
+                            t.fleetEvent("propose", niche, genome, "", pclass, "", 0, sys)
+                        else if (self.tracer) |tr| tr.note("fleet", "propose skipped: genome > 64KB");
+                    }
+                    const sig = signScore(genome, "", s01, run_id, "", "", esh, niche, pclass);
+                    const sig_s: []const u8 = if (scoring.g_score_key != null) &sig else "";
+                    var provbuf: [512]u8 = undefined;
+                    // #376: the 7th component is the routing STRATUM (index 5
+                    // is the phase slot an eval loop never has). Same layout
+                    // as scoreVariants' tuple, so one collector reads both.
+                    const prov = std.fmt.bufPrint(&provbuf, "{s}\t{s}\t{s}\t{s}\t{s}\t{s}\t{s}", .{ "", "", esh, pclass, niche, "", route_policy.stratumOf(self.provider.model) }) catch "";
+                    t.scoreEvent(genome, "", s01, run_id, sig_s, prov);
+                    t.fleetEvent("submit", niche, genome, "", pclass, esh, 0, "");
+                }
+            }
+        }
+    }
+
+    var aw: Io.Writer.Allocating = .init(self.arena);
+    const w = &aw.writer;
+    if (combined) |s| {
+        if (self.eval_judge != null) {
+            try w.print("eval #{d}: deterministic {d:.1} + judge {d:.1} -> {d:.1}/100 (best {d:.1}, target {d}). ", .{ self.eval_iter, det.?, judge.?, s, self.eval_best, self.eval_target });
+        } else {
+            try w.print("eval #{d}: score {d:.1}/100 (best {d:.1}, target {d}). ", .{ self.eval_iter, s, self.eval_best, self.eval_target });
+        }
+        if (exit_derived) try w.writeAll("(Score derived from the command's exit code — its output had no score line; make it print `score: N` for finer grading.) ");
+        if (met)
+            try w.writeAll("TARGET MET - verifier gate is green; finish only if no workspace-changing tool runs after this eval.")
+        else if (improved)
+            try w.writeAll("Improved, but still red - the prior plan is dropped. Make one focused repair, then run eval again; completion is blocked.")
+        else
+            try w.writeAll("No gain - the prior plan is dropped. Repair from current evidence and re-run eval; completion is blocked.");
+    } else if (self.eval_judge != null and det != null and judge == null) {
+        try w.print("eval #{d}: deterministic score {d:.1}/100, but the judge returned no parseable score (it may have errored). Re-run after checking the rubric. ", .{ self.eval_iter, det.? });
+    } else {
+        try w.print("eval #{d}: command ran but no score parsed - print a bare number, or JSON with a score field (0-100 or 0-1), on the last line. ", .{self.eval_iter});
+    }
+    const tail = if (run.stdout.len > 1500) run.stdout[run.stdout.len - 1500 ..] else run.stdout;
+    try w.print("\n[exit {d}] eval output (tail):\n{s}", .{ exit_code, tail });
+    return .{ .text = try self.arena.dupe(u8, aw.writer.buffered()), .is_error = false };
+}
+
+/// Append one tab-separated row to the scores log (.graff/eval-log.tsv).
+/// Best-effort - a failed write never breaks the loop.
+pub fn appendEvalLog(self: *Agent, note: []const u8, det: ?f64, judge: ?f64, score: ?f64, exit_code: i32, met: bool) !void {
+    Io.Dir.cwd().createDir(self.io, ".graff", .default_dir) catch {};
+    const path = ".graff/eval-log.tsv";
+    const existing = Io.Dir.cwd().readFileAlloc(self.io, path, self.arena, .limited(2 * 1024 * 1024)) catch "";
+    var aw: Io.Writer.Allocating = .init(self.arena);
+    const w = &aw.writer;
+    try w.writeAll(existing);
+    if (existing.len > 0 and existing[existing.len - 1] != '\n') try w.writeByte('\n');
+    try w.print("iter={d}\tscore=", .{self.eval_iter});
+    if (score) |s| try w.print("{d:.2}", .{s}) else try w.writeAll("NA");
+    try w.writeAll("\tdet=");
+    if (det) |d| try w.print("{d:.2}", .{d}) else try w.writeAll("NA");
+    try w.writeAll("\tjudge=");
+    if (judge) |j| try w.print("{d:.2}", .{j}) else try w.writeAll("NA");
+    try w.print("\tbest={d:.2}\ttarget={d}\tmet={s}\texit={d}\tnote=", .{ self.eval_best, self.eval_target, if (met) "yes" else "no", exit_code });
+    for (note) |ch| try w.writeByte(if (ch < 0x20) ' ' else ch);
+    try w.writeByte('\n');
+    Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = aw.writer.buffered() }) catch {};
+}
+
+/// Spawn an independent LLM judge (a read-only subagent) to score the
+/// current work against the --judge rubric on a 0-100 scale. The judge
+/// inspects the real artifacts with its own tools and ends its report with
+/// a `score:` line, parsed the same way as a deterministic eval. Runs on a
+/// pool thread via judgeTask (mirrors workflowTask) so the eval handler can
+/// await it. Returns null if the judge could not run or gave no score.
+pub fn runJudge(self: *Agent, rubric: []const u8, eval_output: []const u8, note: []const u8) ?f64 {
+    const ctx: ToolCtx = .{
+        .gpa = self.gpa,
+        .io = self.io,
+        .client = self.client,
+        .provider = self.provider,
+        .subagent_provider = self.subagent_provider,
+        .subagent_cross_provider = self.subagent_cross_provider,
+        .registry = if (self.sub) null else self.registry,
+        .from_sub = self.sub,
+        .has_eval = self.eval_cmd != null,
+        .approvals = self.approvals,
+        .tracer = self.tracer,
+        .run_budget = self.run_budget,
+        .depth = self.depth,
+        .snapshots = self.snapshots,
+        .tools_used = &self.tools_used,
+    };
+    const evidence = if (eval_output.len > 1200) eval_output[eval_output.len - 1200 ..] else eval_output;
+    const what = if (note.len > 0) note else "(no note given)";
+    const judge_prompt = std.fmt.allocPrint(self.arena,
+        \\Score the current state of the work in this directory against the rubric below, on a 0-100 scale.
+        \\
+        \\RUBRIC:
+        \\{s}
+        \\
+        \\The author's note on the latest change: {s}
+        \\
+        \\An automated check was also run; its output (tail) is below as evidence. Form your OWN independent judgement of how well the artifacts satisfy the rubric - do not simply echo the check:
+        \\---
+        \\{s}
+        \\---
+        \\
+        \\Inspect the actual files and artifacts the work produced (read them with your tools; do not modify anything), then score how fully they satisfy the rubric. End your reply with a single final line `score: <N>` where N is an integer from 0 to 100.
+    , .{ rubric, what, evidence }) catch return null;
+    var fut: Io.Future(ToolOutput) = self.io.async(judgeTask, .{ ctx, judge_prompt });
+    const out = fut.await(self.io);
+    defer self.gpa.free(out.text);
+    if (out.is_error) return null;
+    return parseEvalScore(out.text);
+}

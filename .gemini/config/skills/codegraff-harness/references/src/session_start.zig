@@ -1,0 +1,536 @@
+//! Post-credential session bootstrap, split out of startup.zig (600-line
+//! goal — startup.zig itself crossed the line-goal once this content grew,
+//! so it lives in its own sibling file). Covers everything that happens
+//! AFTER credentials/model are resolved and the http.Client exists: the
+//! `graff title` subcommand, terminal-color/`-w`-worktree/banner setup,
+//! opening the run-scoped trace/trajectory files + telemetry + score-signing, the MCP
+//! registry connect (consent prompt + companion auto-activation), and the
+//! `graff repl`/one-shot-prompt early-exit paths.
+//!
+//! Engine side of the #422 boundary: the banner, the worktree line, the config
+//! reports and the consent question are typed events (engine_events.zig) that a
+//! sink renders — this file names no colors and holds no key hints. The consent
+//! ANSWER is still read inline; that half belongs to input inversion (#430).
+//!
+//! Same dangling-pointer discipline as startup.zig: `openTraceFile`,
+//! `openBehaviorFile`, and `openTrajFile` return a plain
+//! (non-self-referential) File.Writer by value — main() assigns it to its OWN
+//! stable local, and only THEN takes
+//! `&writer.interface` for Tracer/Trajectory's `.out` pointer, so nothing
+//! points at a soon-to-be-freed stack frame. `runReplCommand`/
+//! `runOneshotPrompt` take `root: *main_mod.Agent` — by this point in
+//! main(), `root` is already a fully-constructed, stable main()-owned
+//! value, so passing its address around is ordinary pointer-passing, not a
+//! new dangling-pointer risk.
+//!
+//! Back-imports main (as main_mod) for Agent/the mutable globals it
+//! sets (unattended/use_color/json_mode/g_cwd_display/g_worktree_branch/
+//! show_timing/show_cost — mod-prefixed, never aliased). Sibling-imports
+//! everything else directly.
+const std = @import("std");
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
+
+const args = @import("args.zig");
+const main_mod = @import("main.zig");
+const provider_mod = @import("provider.zig");
+const keys_cli = @import("keys_cli.zig");
+const pricing = @import("pricing.zig");
+const mcp = @import("mcp.zig");
+const mcp_boot = @import("mcp_boot.zig");
+const mcp_cli = @import("mcp_cli.zig");
+const mcp_config = @import("mcp_config.zig");
+const plugin_scan = @import("plugin_scan.zig");
+const adopt = @import("adopt.zig");
+const mcp_schema_gate = @import("mcp_schema_gate.zig"); // #416: the eager-vs-deferred policy for MCP tool schemas
+const jobs = @import("jobs.zig");
+const tool_spill = @import("tool_spill.zig"); // #409: where an over-cap tool output's full bytes go
+const trace = @import("trace.zig");
+const scoring = @import("scoring.zig");
+const telemetry = @import("telemetry.zig");
+const obs = @import("obs.zig");
+const util = @import("util.zig");
+const engine_sink = @import("engine_sink.zig"); // #429: startup's lines are typed events, not prints
+const engine_events = @import("engine_events.zig");
+const companion_boot = @import("companion_boot.zig");
+pub const probeLicensed = companion_boot.probeLicensed;
+pub const pinCompanionEager = companion_boot.pinCompanionEager;
+pub const probeLicensedPinningEager = companion_boot.probeLicensedPinningEager;
+pub const connectCompanion = companion_boot.connectCompanion;
+const title_mod = @import("title.zig");
+const fallback_config = @import("fallback_config.zig");
+const repl = @import("repl.zig");
+const repl_glue = @import("repl_glue.zig");
+const messages_mod = @import("messages.zig");
+const session = @import("session.zig");
+const cli = @import("cli.zig");
+
+/// `graff title <prompt>` — print the tab-title the model would generate for
+/// that prompt (one title call, no session). For A/B-ing title prompts/styles.
+/// Moved out of main() (600-line goal). Returns true when handled (main()
+/// should return immediately without going any further).
+pub fn runTitleCommand(io: Io, gpa: Allocator, arena: Allocator, client: *std.http.Client, default_provider: provider_mod.Provider, out: *Io.Writer, flags: args.Flags, run_budget: ?*@import("run_budget.zig").RunBudget) !bool {
+    if (!(flags.positionals.items.len > 0 and std.mem.eql(u8, flags.positionals.items[0], "title"))) return false;
+    if (flags.positionals.items.len < 2) std.process.fatal("usage: graff title <prompt>", .{});
+    const tprompt = try std.mem.join(arena, " ", flags.positionals.items[1..]);
+    if (title_mod.titleTask(gpa, io, client, default_provider, tprompt, run_budget, null)) |t| {
+        defer gpa.free(t);
+        try out.print("{s}\n", .{t});
+    } else try out.writeAll("(title generation failed — check your model/key)\n");
+    try out.flush();
+    return true;
+}
+
+/// Terminal color detection, `--worktree`/`-w` isolation (chdir into a scratch
+/// git worktree + auto-commit branch), the human-facing cwd display, and the
+/// interactive startup banner. Moved out of main() verbatim (600-line goal).
+/// Mutates the `use_color`/`g_cwd_display`/`g_worktree_branch` globals in
+/// main.zig directly (mod-prefixed, never aliased — see the campaign's
+/// mutable-global rule).
+pub fn setupWorktreeAndBanner(
+    io: Io,
+    gpa: Allocator,
+    arena: Allocator,
+    environ_map: anytype,
+    flags: args.Flags,
+    out: *Io.Writer,
+    trace_path: []const u8,
+    codex_account: ?[]const u8,
+    stale_saved_model: ?[]const u8,
+    preferred_provider: ?[]const u8,
+    default_provider: provider_mod.Provider,
+) !void {
+    // Color only on an interactive terminal, and honor NO_COLOR. The palette
+    // itself is a sink concern (#429); this only decides whether there is one.
+    if (environ_map.get("NO_COLOR") == null and (Io.File.stdout().isTty(io) catch false)) {
+        main_mod.use_color = true;
+        engine_sink.enableColor();
+    }
+    const sink = engine_sink.writerSink(out);
+    // --add-dir before --worktree chdir so a relative extra root is resolved
+    // against the launch cwd, not the scratch tree.
+    for (flags.add_dirs.items) |dir| {
+        @import("workspace_roots.zig").add(io, arena, dir) catch |err| std.process.fatal("--add-dir '{s}': {t}", .{ dir, err });
+    }
+    // --worktree/-w: run this session in an isolated git worktree so parallel
+    // agents don't collide on files. Creates .graff/worktrees/<name> on branch
+    // worktree-<name> (from HEAD) and enters it; reuses it if it already exists.
+    if (flags.worktree_flag) |wt| {
+        // POSIX-only: the chdir below goes through libc's `chdir`, which Windows
+        // builds don't link. -w is a parallel-agent dev workflow (mac/linux); on
+        // Windows we bail with a clear message rather than break the cross-build.
+        // The comptime `if` elides the chdir branch entirely on Windows.
+        if (builtin.os.tag == .windows) {
+            std.process.fatal("--worktree is not yet supported on Windows (POSIX-only chdir) — run without -w", .{});
+        } else {
+            const wt_path = try std.fmt.allocPrint(arena, ".graff/worktrees/{s}", .{wt});
+            const wt_branch = try std.fmt.allocPrint(arena, "worktree-{s}", .{wt});
+            if (jobs.runCapped(gpa, io, &.{ "git", "worktree", "add", wt_path, "-b", wt_branch }, 8192, 8192, 60_000)) |r| {
+                gpa.free(r.stdout);
+                gpa.free(r.stderr);
+            } else |_| {}
+            const wt_z = arena.dupeSentinel(u8, wt_path, 0) catch std.process.fatal("--worktree: out of memory", .{});
+            if (std.posix.system.chdir(wt_z.ptr) != 0)
+                std.process.fatal("--worktree '{s}': could not enter {s} (is this a git repository?)", .{ wt, wt_path });
+            main_mod.g_worktree_branch = wt_branch; // non-null = auto-commit each turn to this scratch branch
+            if (!main_mod.json_mode) sink.emit(io, .{ .worktree_entered = .{
+                .path = wt_path,
+                .branch = wt_branch,
+                .autocommit = main_mod.g_worktree_autocommit,
+            } });
+        }
+    }
+    var cwd_buf: [4096]u8 = undefined;
+    main_mod.g_cwd_display = if (flags.worktree_flag) |wt|
+        // After chdir into the worktree, realPath(AT_FDCWD) is unreliable; derive from the launch dir.
+        std.fmt.allocPrint(arena, "{s}/.graff/worktrees/{s}", .{ environ_map.get("PWD") orelse ".", wt }) catch try arena.dupe(u8, environ_map.get("PWD") orelse ".")
+    else if (Io.Dir.cwd().realPath(io, &cwd_buf)) |n|
+        try arena.dupe(u8, cwd_buf[0..n])
+    else |_|
+        try arena.dupe(u8, environ_map.get("PWD") orelse ".");
+    // #409: the oversized-tool-output cap spills the full bytes into this
+    // workspace before eliding them. Wired here because this is where the cwd
+    // (post `-w` chdir) is first known absolutely, and the marker hands the
+    // model an ABSOLUTE path. Left unwired in tests, where the cap stays the
+    // pre-#409 plain truncation.
+    tool_spill.enable(.{ .io = io, .dir = .cwd(), .base_abs = main_mod.g_cwd_display });
+    if (flags.experiment_n > 0) {
+        const exp_id = flags.resume_flag orelse "live";
+        const n = @import("experiment_pool.zig").arm(gpa, io, arena, exp_id, flags.experiment_n) catch |err|
+            std.process.fatal("--experiment: {t}", .{err});
+        if (!main_mod.json_mode) sink.emit(io, .{ .session_notice = .{
+            .text = try std.fmt.allocPrint(arena, "experiment {s}: {d} trees — spawn into them, do not edit the caller tree", .{ exp_id, n }),
+            .tone = .dim,
+        } });
+    }
+
+    // The pager owns the screen. Dumping the line-REPL banner first makes
+    // `graff tui --yolo` look like bare `graff` never left.
+    if (!main_mod.json_mode and flags.oneshot_prompt == null and !flags.isPager()) {
+        sink.emit(io, .{ .session_banner = .{ .cwd = main_mod.g_cwd_display, .trace_path = trace_path } });
+        if (environ_map.get("GRAFF_REPL_DEBUG") != null) if (codex_account) |acct| sink.emit(io, .{ .session_notice = .{
+            .text = try std.fmt.allocPrint(arena, "logged into Codex (ChatGPT account {s}…) — /model codex", .{acct[0..@min(acct.len, 8)]}),
+        } });
+        if (flags.effectiveYolo()) sink.emit(io, .{ .session_notice = .{
+            .lead = "⚠ YOLO",
+            .text = if (flags.yolo_flag) " mode (--yolo): all bash/tool/MCP permission prompts are skipped" else " mode (-p implies --yolo; --safe opts out): all bash/tool/MCP permission prompts are skipped",
+            .tone = .alert,
+        } });
+        if (stale_saved_model) |nm| {
+            const allowed = fallback_config.load(io, arena);
+            const cross_provider = preferred_provider != null and !std.mem.eql(u8, preferred_provider.?, default_provider.id);
+            sink.emit(io, .{ .saved_model_unavailable = .{
+                .saved = nm,
+                .model = default_provider.model,
+                .provider = default_provider.id,
+                .blocked = cross_provider and !fallback_config.contains(allowed, default_provider.id),
+            } });
+        }
+        if (main_mod.show_timing or main_mod.show_cost) sink.emit(io, .{ .session_notice = .{
+            .text = try std.fmt.allocPrint(arena, "displays on:{s}{s}", .{
+                if (main_mod.show_timing) " per-tool timing" else "",
+                if (main_mod.show_cost) " session cost" else "",
+            }),
+            .tone = .dim,
+        } });
+        if (cli.updateAvailableLine(io, gpa, arena, environ_map.get("GRAFF_NO_UPDATE_CHECK") != null)) |line| sink.emit(io, .{ .session_notice = .{
+            .text = line,
+            .tone = .dim,
+        } });
+    }
+}
+
+/// A best-effort log-file result shared by operational traces, behavioral
+/// traces, and the legacy trajectory archive: the opened file handle (null on
+/// a failed open) plus the File.Writer wrapping it. The caller
+/// owns `buf`'s storage (a stack array in main()) and must keep it alive as
+/// long as the returned writer is used; the writer itself is safe to copy by
+/// value (see startup.zig's header) since nothing takes `&writer.interface`
+/// until the caller's copy has settled into its own final, stable location.
+pub const FileWriterOpen = struct {
+    file: ?Io.File,
+    writer: Io.File.Writer,
+};
+
+fn openRunFile(io: Io, dir_path: []const u8, path: []const u8, buf: []u8) FileWriterOpen {
+    Io.Dir.cwd().createDir(io, ".graff", .default_dir) catch {};
+    Io.Dir.cwd().createDir(io, dir_path, .default_dir) catch {};
+    // A random run id makes collision vanishingly unlikely; exclusive creation
+    // turns even that case into a disabled writer instead of truncating another
+    // process's file.
+    const file: ?Io.File = Io.Dir.cwd().createFile(io, path, .{ .exclusive = true }) catch null;
+    const writer = if (file) |f| f.writer(io, buf) else undefined;
+    return .{ .file = file, .writer = writer };
+}
+
+/// Opens `.graff/traces/<run-id>.jsonl` exclusively.
+pub fn openTraceFile(io: Io, path: []const u8, buf: []u8) FileWriterOpen {
+    return openRunFile(io, trace.traces_dir, path, buf);
+}
+
+fn validBehaviorDirComponent(component: []const u8) bool {
+    if (component.len == 0 or std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) return false;
+    for (component) |c| {
+        if (!(std.ascii.isAlphanumeric(c) or c == '.' or c == '_' or c == '-')) return false;
+    }
+    return true;
+}
+
+/// Opens one exclusive behavioral trace file. Every directory component is
+/// created and reopened relative to a verified no-follow parent handle, so a
+/// workspace symlink cannot redirect plaintext traces outside `base`. The
+/// filename itself comes from a validated hex run ID. POSIX directories use
+/// 0700 and files request a maximum mode of 0600 because task adapters may
+/// deliberately record sensitive state.
+pub fn openBehaviorFile(io: Io, base: Io.Dir, dir: []const u8, run_id: []const u8, buf: []u8) FileWriterOpen {
+    if (run_id.len == 0 or run_id.len > 64) return .{ .file = null, .writer = undefined };
+    for (run_id) |c| if (!std.ascii.isHex(c)) return .{ .file = null, .writer = undefined };
+
+    const dir_permissions: Io.File.Permissions = if (builtin.os.tag == .windows) .default_dir else .fromMode(0o700);
+    var current = base;
+    var current_owned = false;
+    defer if (current_owned) current.close(io);
+    var components = std.mem.splitScalar(u8, dir, '/');
+    var saw_component = false;
+    while (components.next()) |component| {
+        if (!validBehaviorDirComponent(component)) return .{ .file = null, .writer = undefined };
+        saw_component = true;
+        current.createDir(io, component, dir_permissions) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return .{ .file = null, .writer = undefined },
+        };
+        const next = current.openDir(io, component, .{ .iterate = true, .follow_symlinks = false }) catch return .{ .file = null, .writer = undefined };
+        if (current_owned) current.close(io);
+        current = next;
+        current_owned = true;
+    }
+    if (!saw_component) return .{ .file = null, .writer = undefined };
+    if (builtin.os.tag != .windows) current.setPermissions(io, dir_permissions) catch return .{ .file = null, .writer = undefined };
+
+    var name_buf: [72]u8 = undefined;
+    const file_name = std.fmt.bufPrint(&name_buf, "{s}.jsonl", .{run_id}) catch return .{ .file = null, .writer = undefined };
+    const file_permissions: Io.File.Permissions = if (builtin.os.tag == .windows) .default_file else .fromMode(0o600);
+    const file: ?Io.File = current.createFile(io, file_name, .{
+        .exclusive = true,
+        .permissions = file_permissions,
+    }) catch null;
+    const writer = if (file) |f| f.writer(io, buf) else undefined;
+    return .{ .file = file, .writer = writer };
+}
+
+test "openBehaviorFile: confines names, creates exclusively, and uses private POSIX modes" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var first_buf: [256]u8 = undefined;
+    const first = openBehaviorFile(io, tmp.dir, "trajectories", "0123456789abcdef", &first_buf);
+    try std.testing.expect(first.file != null);
+    defer if (first.file) |file| file.close(io);
+
+    var duplicate_buf: [256]u8 = undefined;
+    const duplicate = openBehaviorFile(io, tmp.dir, "trajectories", "0123456789abcdef", &duplicate_buf);
+    try std.testing.expect(duplicate.file == null);
+
+    var invalid_buf: [256]u8 = undefined;
+    const invalid = openBehaviorFile(io, tmp.dir, "trajectories", "../escape", &invalid_buf);
+    try std.testing.expect(invalid.file == null);
+
+    if (builtin.os.tag != .windows) {
+        const dir_stat = try tmp.dir.statFile(io, "trajectories", .{});
+        const file_stat = try tmp.dir.statFile(io, "trajectories/0123456789abcdef.jsonl", .{});
+        try std.testing.expectEqual(@as(u32, 0o700), @as(u32, @intCast(dir_stat.permissions.toMode() & 0o777)));
+        const file_mode: u32 = @intCast(file_stat.permissions.toMode() & 0o777);
+        try std.testing.expectEqual(@as(u32, 0), file_mode & 0o177);
+    }
+}
+
+test "openBehaviorFile: rejects symlinked path components" {
+    if (builtin.os.tag == .windows) return;
+    const io = std.testing.io;
+
+    {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+        try tmp.dir.createDir(io, "outside", .default_dir);
+        try tmp.dir.symLink(io, "outside", ".graff", .{ .is_directory = true });
+        var buf: [256]u8 = undefined;
+        const opened = openBehaviorFile(io, tmp.dir, ".graff/trajectories", "0123456789abcdef", &buf);
+        try std.testing.expect(opened.file == null);
+    }
+
+    {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+        try tmp.dir.createDir(io, ".graff", .default_dir);
+        try tmp.dir.createDir(io, "outside", .default_dir);
+        const graff = try tmp.dir.openDir(io, ".graff", .{});
+        defer graff.close(io);
+        try graff.symLink(io, "../outside", "trajectories", .{ .is_directory = true });
+        var buf: [256]u8 = undefined;
+        const opened = openBehaviorFile(io, tmp.dir, ".graff/trajectories", "fedcba9876543210", &buf);
+        try std.testing.expect(opened.file == null);
+    }
+}
+
+/// Opens `.graff/trajectories/<run-id>.jsonl` exclusively. The aggregate
+/// archive is the directory, not a shared append cursor.
+pub fn openTrajFile(io: Io, path: []const u8, buf: []u8) FileWriterOpen {
+    return openRunFile(io, trace.trajectories_dir, path, buf);
+}
+
+/// Generate the run id before worktree setup so the banner can show the exact
+/// run-scoped trace path.
+pub fn initScoreRunId(io: Io) void {
+    var raw: [8]u8 = undefined;
+    io.random(&raw);
+    scoring.g_run_id = std.fmt.bytesToHex(raw, .lower);
+}
+
+/// Load the optional signing key after worktree setup, preserving the prior
+/// meaning of relative GRAFF_SCORE_KEY_FILE paths.
+pub fn loadScoreSigningKey(io: Io, arena: Allocator, environ_map: anytype) void {
+    scoring.g_score_key = scoring.loadScoreKey(io, arena, environ_map);
+}
+
+/// Telemetry endpoint precedence: opt-out always wins → else an
+/// env-configured endpoint (dev / override) → else the release build's
+/// baked-in default. Returns the Telemetry sink by value — plain data plus
+/// one external pointer (`client`, already stable in main()'s frame), so
+/// returning it is safe (no self-reference to invalidate on the copy).
+/// Moved out of main() (600-line goal).
+pub fn initTelemetry(io: Io, gpa: Allocator, client: *std.http.Client, environ_map: anytype, flags: args.Flags, default_telemetry_endpoint: []const u8) telemetry.Telemetry {
+    const telem_endpoint: []const u8 = if (flags.no_telemetry_flag or environ_map.get("GRAFF_NO_TELEMETRY") != null)
+        ""
+    else
+        environ_map.get("OTEL_EXPORTER_OTLP_ENDPOINT") orelse
+            environ_map.get("GRAFF_OTEL_ENDPOINT") orelse
+            default_telemetry_endpoint;
+    const telem_home = keys_cli.homeEnv(environ_map) orelse "";
+    obs.reset();
+    @import("prompt_cache_hud.zig").reset();
+    obs.attach(io);
+    obs.export_endpoint = telem_endpoint;
+    return .{
+        .io = io,
+        .gpa = gpa,
+        .client = client,
+        .endpoint = telem_endpoint,
+        .auth_key = telemetry.validatedAuthKey(environ_map.get("GRAFF_TELEMETRY_KEY")),
+        .install_id = if (telem_endpoint.len > 0) keys_cli.loadOrCreateId(io, gpa, telem_home, ".simple-harness-install-id") else @splat('0'),
+        .client_name = environ_map.get("HARNESS_CLIENT") orelse "harness",
+        .sdk_install_id = environ_map.get("HARNESS_SDK_INSTALL_ID") orelse "",
+        .start = Io.Timestamp.now(io, .awake),
+        .start_unix_ms = util.unixMs(io),
+    };
+}
+
+/// MCP servers from the workspace .mcp.json merged with the user-level
+/// ~/.codegraff/mcp.json (#345). SECURITY: either file launches arbitrary local
+/// commands, so opening an untrusted repo could run them — and a global entry
+/// is no safer, it just follows the user everywhere. Auto-connect only with
+/// --yolo (trusted) or explicit per-session consent (prompted here); otherwise
+/// starts with an empty (but live) registry so `/mcp add` still works. Moved
+/// out of main() (600-line goal). Returns the Registry by value — mcp.Registry
+/// holds no self-references (its storage is ArrayList/HashMap-backed), so
+/// returning it is safe.
+/// --lean / GRAFF_LEAN=1, and (via Flags.effectiveLean) every one-shot that
+/// did not --no-lean: lean is the one-shot DEFAULT. Lean no longer SKIPS
+/// MCP — it folds every server behind the load_tool_schemas meta tool
+/// (mcp_schema_gate.deferAllRuntime): connected servers pay names + one-line
+/// descriptions instead of full schemas, and capability survives a load
+/// call away. Measured prefix cost of eager MCP: ~3.3k tokens for a
+/// licensed codedbpro alone, on EVERY model turn. Interactive sessions are
+/// untouched: full surface, consent flow, eager pins.
+pub fn leanMode(effective_lean: bool, environ_map: anytype) bool {
+    return effective_lean or environ_map.get("GRAFF_LEAN") != null;
+}
+
+pub fn initRegistryConsent(io: Io, gpa: Allocator, arena: Allocator, out: *Io.Writer, in: *Io.Reader, flags: args.Flags, mcp_config_path: []const u8, home: []const u8, use_color: bool, json_mode: bool, environ_map: anytype) !mcp.Registry {
+    const global_path = mcp_config.globalPath(arena, home, environ_map);
+    const sink = engine_sink.writerSink(out);
+    // First interactive session copies Claude/Cursor MCP into ~/.codegraff once.
+    // One-shots/--json skip it so CI does not rewrite a checkout. Re-run with
+    // `graff mcp import` / `/import-claude`. GRAFF_NO_ADOPT=1 disables.
+    if (!json_mode and flags.oneshot_prompt == null and environ_map.get("GRAFF_NO_ADOPT") == null) {
+        var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const cwd_n = Io.Dir.cwd().realPath(io, &cwd_buf) catch 0;
+        const cwd = if (cwd_n > 0) cwd_buf[0..cwd_n] else ".";
+        if (adopt.maybeFirstRun(io, arena, home, cwd) catch null) |r| {
+            if (r.added_user + r.added_project + r.skills > 0) {
+                sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "adopted {d} Claude/Cursor MCP server(s) into ~/" ++ mcp_config.global_rel_path ++ " — /mcp trust to connect (or graff mcp import to refresh)", .{r.added_user + r.added_project})));
+            }
+        }
+    }
+    // --json's stdout is a JSONL stream and a one-shot's is the answer; neither
+    // can carry chatter. With a global config `mcp_count > 0` in every project,
+    // so an unguarded line here would corrupt the head of every --json run.
+    const quiet = json_mode or flags.oneshot_prompt != null or environ_map.get("GRAFF_REPL_DEBUG") == null;
+    const merged = mcp_config.load(io, arena, Io.Dir.cwd(), mcp_config_path, global_path, home, mcp_config.isEnvOverride(environ_map));
+    // Interactive only: json/one-shot stdout cannot carry chatter. A slow
+    // Cursor/Claude tree used to look like a hung boot; this line is the clock.
+    if (!json_mode and flags.oneshot_prompt == null) {
+        const st = plugin_scan.last;
+        if (st.n > 0 or st.ms > 20)
+            sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "plugins: {s}", .{plugin_scan.format(arena)})));
+    }
+    // #416: resolve eager-vs-deferred BEFORE anything connects, so the first
+    // catalog render already knows which servers pay their schemas up front.
+    mcp_schema_gate.configure(arena, merged, environ_map);
+    // --lean folds every server behind the meta tool (deferAllRuntime) rather
+    // than skipping MCP: capability a load call away, ~zero schema prefix.
+    if (leanMode(flags.effectiveLean(), environ_map)) mcp_schema_gate.deferAllRuntime();
+    if (!quiet) {
+        // Reported here rather than in `Registry.init`, which never runs when
+        // consent is declined — a config that does not parse must be named
+        // either way.
+        if (merged.invalid_project) sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "{s}" ++ mcp_config.invalid_complaint, .{mcp_config_path})));
+        if (merged.invalid_global) sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "{s}" ++ mcp_config.invalid_complaint, .{global_path orelse ""})));
+        // A config graff does not read is worse than no config: say so once.
+        if (mcp_config.unsupportedConfigPresent(io, arena, home))
+            sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "ignoring ~/" ++ mcp_config.unsupported_rel_path ++ ": unsupported path — use ~/" ++ mcp_config.global_rel_path ++ " (global) or {s} (project)", .{mcp_config_path})));
+    }
+    const mcp_count = mcp_cli.countMcpServers(merged);
+    const defer_join = mcp_boot.deferMcpJoin(flags.effectiveYolo(), json_mode);
+    const skip_imported = mcp_boot.oneshotSkipsImportedMcp(
+        flags.oneshot_prompt != null,
+        leanMode(flags.effectiveLean(), environ_map),
+        merged.project.count(),
+    );
+    // Name the next phase the way `plugins:` already does. Without this, a
+    // handshake that still runs on this thread looks like a hung boot.
+    if (!json_mode and flags.oneshot_prompt == null and mcp_count > 0) {
+        const mcp_line = if (defer_join)
+            try std.fmt.allocPrint(arena, "mcp: {d} server(s) in background", .{mcp_count})
+        else
+            try std.fmt.allocPrint(arena, "mcp: connecting {d} server(s)...", .{mcp_count});
+        sink.emit(io, dimNotice(mcp_line));
+    }
+    const mcp_t0 = Io.Timestamp.now(io, .awake);
+    // Lean folds schemas (deferAllRuntime); it does not skip connect.
+    // --yolo / -p still connect so `.mcp.json` works on the default one-shot
+    // (ADR 0029). Interactive without --yolo still asks.
+    var connect_mcp = flags.yolo_flag or mcp_count == 0;
+    if (mcp_count > 0 and !flags.yolo_flag and !json_mode and use_color) {
+        sink.emit(io, .{ .mcp_consent_prompt = .{ .count = mcp_count } });
+        // Still an inline read: only the QUESTION is inverted here, and the
+        // answer becomes a typed command in #430 (input inversion).
+        const ans = in.takeDelimiter('\n') catch null;
+        connect_mcp = ans != null and ans.?.len > 0 and (ans.?[0] == 'y' or ans.?[0] == 'Y');
+    }
+    var registry: mcp.Registry = if (connect_mcp and !skip_imported) ((mcp.Registry.init(gpa, io, mcp_config_path, global_path, home, json_mode or flags.oneshot_prompt != null or environ_map.get("GRAFF_REPL_DEBUG") != null, environ_map, defer_join) catch |err| inner: {
+        sink.emit(io, .{ .session_notice = .{ .text = try std.fmt.allocPrint(arena, "[mcp] init failed: {t} — continuing without MCP", .{err}) } });
+        if (telemetry.g_telem) |t| t.errorEvent("mcp", @errorName(err));
+        break :inner null;
+    }) orelse mcp.Registry.emptyWithOAuthHome(gpa, io, home)) else outer: {
+        if (mcp_count > 0 and !quiet)
+            sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "skipped {d} MCP server(s) — /mcp trust to connect them now (or re-run with --yolo)", .{mcp_count})));
+        break :outer mcp.Registry.emptyWithOAuthHome(gpa, io, home);
+    };
+    // Set on every path, not just `init`'s: `/mcp trust` has to find the global
+    // file precisely when consent was declined and no `init` ever ran. `arena`
+    // is the session arena, so the path outlives the registry.
+    registry.global_config_path = global_path;
+    registry.global_is_override = mcp_config.isEnvOverride(environ_map);
+    registry.show_diagnostics = json_mode or flags.oneshot_prompt != null or environ_map.get("GRAFF_REPL_DEBUG") != null;
+    if (!json_mode and flags.oneshot_prompt == null) {
+        const ms = @max(0, mcp_t0.untilNow(io, .awake).toMilliseconds());
+        if (ms >= 80)
+            sink.emit(io, dimNotice(try std.fmt.allocPrint(arena, "mcp: ready in {d}ms", .{ms})));
+    }
+    return registry;
+}
+
+/// The startup cluster's most common line: dim, no badge. A helper rather than
+/// a variant — the tone is the only thing these share and the only thing a
+/// sink needs from them.
+fn dimNotice(text: []const u8) engine_events.EngineEvent {
+    return .{ .session_notice = .{ .text = text, .tone = .dim } };
+}
+
+test "lean mode: flag or GRAFF_LEAN env, never the default" {
+    var env = std.process.Environ.Map.init(std.testing.allocator);
+    defer env.deinit();
+    try std.testing.expect(!leanMode(false, env)); // default: consent flow decides
+    try std.testing.expect(leanMode(true, env)); // --lean wins alone
+    try env.put("GRAFF_LEAN", "1");
+    try std.testing.expect(leanMode(false, env)); // env wins alone
+    try std.testing.expect(leanMode(true, env));
+}
+
+test "a licensed companion is pinned eager, once, so no discovery round-trip is needed" {
+    const saved = mcp_schema_gate.g_policy;
+    defer mcp_schema_gate.g_policy = saved;
+    mcp_schema_gate.g_policy = .{};
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try std.testing.expect(!mcp_schema_gate.pinnedEager("codedbpro"));
+    pinCompanionEager(arena);
+    try std.testing.expect(mcp_schema_gate.pinnedEager("codedbpro"));
+    // Idempotent, and an env/config pin is respected rather than duplicated.
+    pinCompanionEager(arena);
+    try std.testing.expectEqual(@as(usize, 1), mcp_schema_gate.g_policy.eager.len);
+}

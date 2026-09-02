@@ -1,0 +1,431 @@
+//! #330 embedder mode: the hard `--no-local-tools` gate.
+//!
+//! An embedder runs graff as the reasoning loop on a TRUSTED host and reaches
+//! the sandbox only through tool calls, so the built-in tools that touch this
+//! machine have to be gone rather than merely un-approved. A permission rule is
+//! something a prompt-injected model can argue its way past; a tool that does
+//! not exist is not. The coding tools come back in over MCP - the embedder
+//! stands up a sandbox-proxy server and points graff at it - and this gate
+//! never touches MCP-sourced tools, which is the whole point.
+//!
+//! Two enforcement layers, both required, because either alone is a promise
+//! rather than a guarantee:
+//!   1. the gated tools are never advertised - schema.zig drops them from the
+//!      root catalog (effectiveRootSpecs) and from the comptime subagent
+//!      catalogs, so no provider is told they exist;
+//!   2. dispatch refuses - exec.zig's guard chain answers a hallucinated call
+//!      with a tool error naming the flag, before anything runs.
+//!
+//! The switch is process-global on purpose. Subagents, workflow workers,
+//! retries and judges all run in-process through the same exec path, so one
+//! flag covers the whole agent tree and there is no per-agent state anyone can
+//! forget to inherit.
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+/// Set once at startup by `--no-local-tools` (args.zig) or
+/// `GRAFF_NO_LOCAL_TOOLS=1` (session_run.zig). Never flipped mid-session.
+pub var enabled: bool = false;
+
+/// The built-in tools that reach this host: shell execution plus its two job
+/// controls, the three file tools, and codedb - which reads the host checkout
+/// through its own index. `webfetch` is deliberately absent: it is plain host
+/// HTTP with no sandbox to escape. So are the orchestration/meta tools, and
+/// everything MCP-sourced (an `mcp__*` name never matches here).
+pub const gated_tools = [_][]const u8{
+    "bash",
+    "bash_output",
+    "bash_kill",
+    "read_file",
+    "edit_file",
+    "write_file",
+    "codedb",
+    "read_tool_result",
+    // #352: imagegen looks like a content tool but is a local write-and-spawn
+    // primitive — it starts `codex exec --sandbox workspace-write` or python3
+    // on THIS host and writes a file into the working tree. Being optional
+    // (tool_gates.zig) does not exempt it: an embedder that removed bash and
+    // write_file would otherwise still be handed a way to run a process and
+    // land bytes on disk.
+    "imagegen",
+};
+
+/// A name test only, independent of whether the gate is on, so the comptime
+/// catalog filter and the runtime refusal can share one list.
+pub fn isLocalTool(name: []const u8) bool {
+    for (gated_tools) |tool| {
+        if (std.mem.eql(u8, name, tool)) return true;
+    }
+    return false;
+}
+
+/// Layer 2's predicate: this call must be refused before anything runs.
+pub fn blocks(name: []const u8) bool {
+    return enabled and isLocalTool(name);
+}
+
+/// --lean / GRAFF_LEAN=1 tool surface — the token-cost counterpart of the MCP
+/// fold (session_start.leanMode reads the same flag/env). A one-shot
+/// coding task keeps the file/shell tools plus attempt_completion; every
+/// other schema is prefix re-sent on EVERY model turn. Unlike #330 this
+/// is NOT a security boundary: an unadvertised tool is simply unknown.
+pub var lean: bool = false;
+
+/// The lean keep-list. File/shell tools stay on the wire: an rlm-only
+/// catalog (ADR 0024 follow-up) made grok-4.6 retry scripts for 122
+/// calls / 4/6. Dropping catalog `read_file` (085320) made it worse
+/// (63 calls) — the model retried rlm/bash cat when print(read_file)
+/// was a no-op. `load_tool_schemas` stays so MCP can unfold; it is
+/// hidden only when nothing is deferred. Overflow paging
+/// (`read_tool_result`) is interactive.
+pub const lean_tools = [_][]const u8{
+    "bash",
+    "read_file",
+    "edit_file",
+    "write_file",
+    "codedb",
+    "subagent",
+    "attempt_completion",
+    "load_tool_schemas",
+};
+
+/// A name test only, so the catalog filter and tests share one list.
+pub fn leanKeeps(name: []const u8) bool {
+    for (lean_tools) |tool| {
+        if (std.mem.eql(u8, name, tool)) return true;
+    }
+    return false;
+}
+
+/// schema.zig chains this after filterRootSpecs (a tool may survive one and
+/// not the other). Returns the input untouched when lean is off — no
+/// allocation on the normal path, mirroring filterRootSpecs.
+pub fn filterLeanSpecs(comptime Spec: type, arena: Allocator, specs: []const Spec) ![]const Spec {
+    if (!lean) return specs;
+    const buf = try arena.alloc(Spec, specs.len);
+    var kept: usize = 0;
+    for (specs) |spec| {
+        if (!leanKeeps(spec.name)) continue;
+        buf[kept] = spec;
+        kept += 1;
+    }
+    return buf[0..kept];
+}
+
+/// --lean's compact subagent description: same name and JSON schema, a
+/// fraction of the prose. The full description is 1.9k bytes of workflow,
+/// persona and tier/effort precedence detail a one-shot never exercises.
+/// Sidecar-only (ADR 0023): keep the critical-path next step local. Do
+/// not claim root bash/edit are approval-denied — that is true only when
+/// `unattended_note` is appended (`unattended and !yolo`). `-p --yolo`
+/// (evals) can act locally; the old lie forced extra child turns.
+pub const lean_subagent_desc = "Spawn a sidecar for a self-contained task. Child has bash, read_file, edit_file, write_file, codedb; it does NOT share your context — the prompt must say everything. Returns the final report. Keep the critical-path next step local; do not hand off the blocker and wait. Do file and command work yourself this turn; spawn only for independent work.";
+
+/// One-shot tool prose (ADR 0046). Same names and JSON schemas; shorter
+/// descriptions so flash models start and finish instead of rereading
+/// essays. Do not drop to four tools (ADR 0024).
+pub const lean_bash_desc = "Run /bin/sh -c in cwd. Returns stdout, stderr, exit. Foreground still running after 15s (or timeout ms) backgrounds — bash_output(wait_ms>0) waits; do not poll.";
+pub const lean_read_file_desc = "Read a UTF-8 file. Call before editing. contains=exact-key numbered lines; start_line/end_line for a window.";
+pub const lean_edit_file_desc = "Replace exact text. Prefer one batched edits[] over many calls. Prefer over write_file for an existing file.";
+pub const lean_codedb_desc = "Indexed nav: context <task> · around <name> · callpath A B · list_dir <path> · status. Prefer over bash grep/find/ls.";
+pub const lean_attempt_completion_desc = "Task is done. Put the final answer in result.";
+
+fn leanCompactDesc(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "subagent")) return lean_subagent_desc;
+    if (std.mem.eql(u8, name, "bash")) return lean_bash_desc;
+    if (std.mem.eql(u8, name, "read_file")) return lean_read_file_desc;
+    if (std.mem.eql(u8, name, "edit_file")) return lean_edit_file_desc;
+    if (std.mem.eql(u8, name, "codedb")) return lean_codedb_desc;
+    if (std.mem.eql(u8, name, "attempt_completion")) return lean_attempt_completion_desc;
+    return null;
+}
+
+/// schema.zig chains this after filterLeanSpecs: identical names and JSON
+/// schemas, compact prose. Returns the input untouched when lean is off.
+pub fn compactLeanSpecs(comptime Spec: type, arena: Allocator, specs: []const Spec) ![]const Spec {
+    if (!lean) return specs;
+    const buf = try arena.dupe(Spec, specs);
+    for (buf) |*spec| {
+        if (leanCompactDesc(spec.name)) |desc| spec.desc = desc;
+    }
+    return buf;
+}
+
+/// Refusal text. Names the flag so the model stops retrying the same call, and
+/// points it at what does work in this deployment.
+pub const refusal_text = "--no-local-tools is set for this process: the built-in bash, bash_output, bash_kill, read_file, edit_file, write_file, codedb and read_tool_result tools are hard-disabled and cannot be re-enabled by asking. Run commands and touch files through the sandbox tools the connected MCP server provides instead; webfetch still works.";
+
+/// `GRAFF_NO_LOCAL_TOOLS` - affirmative-only, like GRAFF_CLOCK_SLEEP, and OR'd
+/// onto the CLI flag by the caller so a stray value can never turn
+/// `--no-local-tools` back off.
+pub fn envEnables(value: []const u8) bool {
+    return std.mem.eql(u8, value, "1") or
+        std.ascii.eqlIgnoreCase(value, "true") or
+        std.ascii.eqlIgnoreCase(value, "on") or
+        std.ascii.eqlIgnoreCase(value, "yes");
+}
+
+/// Layer 1, comptime half: the subagent catalogs are comptime constants, so
+/// their gated twin is computed once at compile time and merely selected at
+/// runtime.
+pub fn remoteSpecs(comptime Spec: type, comptime specs: []const Spec) []const Spec {
+    comptime {
+        var out: []const Spec = &.{};
+        for (specs) |spec| {
+            if (isLocalTool(spec.name)) continue;
+            out = out ++ [_]Spec{spec};
+        }
+        return out;
+    }
+}
+
+/// Layer 1, runtime half: the root catalog is picked at runtime (clock_sleep,
+/// learning), so the gated copy is built in the caller's arena. Returns the
+/// input untouched when the gate is off - no allocation on the normal path.
+pub fn filterRootSpecs(comptime Spec: type, arena: Allocator, specs: []const Spec) ![]const Spec {
+    if (!enabled) return specs;
+    const buf = try arena.alloc(Spec, specs.len);
+    var kept: usize = 0;
+    for (specs) |spec| {
+        if (isLocalTool(spec.name)) continue;
+        buf[kept] = spec;
+        kept += 1;
+    }
+    return buf[0..kept];
+}
+
+test "#330: the gated set is exactly the host-touching built-ins; webfetch, meta and MCP names are not gated" {
+    const saved = enabled;
+    defer enabled = saved;
+
+    for (gated_tools) |tool| try std.testing.expect(isLocalTool(tool));
+    try std.testing.expectEqual(@as(usize, 9), gated_tools.len);
+    try std.testing.expect(isLocalTool("imagegen")); // #352: optional, but still a local spawn+write
+    for ([_][]const u8{ "webfetch", "skill", "subagent", "workflow", "todo_write", "eval", "mcp__sandbox__exec", "mcp__sandbox__bash" }) |tool|
+        try std.testing.expect(!isLocalTool(tool));
+
+    // blocks() is the gate, not the list: nothing is refused until it is on.
+    enabled = false;
+    for (gated_tools) |tool| try std.testing.expect(!blocks(tool));
+    enabled = true;
+    for (gated_tools) |tool| try std.testing.expect(blocks(tool));
+    try std.testing.expect(!blocks("webfetch"));
+    try std.testing.expect(!blocks("mcp__sandbox__bash"));
+}
+
+test "#330: GRAFF_NO_LOCAL_TOOLS is affirmative-only" {
+    for ([_][]const u8{ "1", "true", "TRUE", "on", "yes" }) |v| try std.testing.expect(envEnables(v));
+    for ([_][]const u8{ "", "0", "false", "off", "no", "2", "enabled" }) |v| try std.testing.expect(!envEnables(v));
+}
+
+test "lean: the filter keeps exactly the seven one-shot tools, and allocates nothing when off" {
+    const Spec = struct { name: []const u8, desc: []const u8 = "" };
+    const specs = [_]Spec{
+        .{ .name = "bash" },
+        .{ .name = "workflow" },
+        .{ .name = "read_file" },
+        .{ .name = "todo_write" },
+        .{ .name = "subagent" },
+        .{ .name = "attempt_completion" },
+    };
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const saved = lean;
+    defer lean = saved;
+
+    lean = false;
+    try std.testing.expectEqual(specs.len, (try filterLeanSpecs(Spec, arena, &specs)).len);
+    try std.testing.expectEqual(@as(usize, 0), arena_state.queryCapacity());
+
+    lean = true;
+    const kept = try filterLeanSpecs(Spec, arena, &specs);
+    try std.testing.expectEqual(@as(usize, 4), kept.len);
+    try std.testing.expectEqualStrings("bash", kept[0].name);
+    try std.testing.expectEqualStrings("read_file", kept[1].name);
+    try std.testing.expectEqualStrings("subagent", kept[2].name);
+    try std.testing.expectEqualStrings("attempt_completion", kept[3].name);
+    try std.testing.expectEqual(@as(usize, 8), lean_tools.len);
+    try std.testing.expect(leanKeeps("read_file") and leanKeeps("edit_file") and leanKeeps("write_file"));
+    try std.testing.expect(!leanKeeps("read_tool_result"));
+    for (lean_tools) |tool| try std.testing.expect(leanKeeps(tool));
+    try std.testing.expect(!leanKeeps("workflow"));
+    try std.testing.expect(!leanKeeps("todo_write"));
+    try std.testing.expect(!leanKeeps("webfetch"));
+    // …and the compact pass shrinks one-shot prose, leaves names/schemas,
+    // and is a no-op when lean is off.
+    lean = false;
+    try std.testing.expectEqual(specs.len, (try compactLeanSpecs(Spec, arena, &specs)).len);
+    lean = true;
+    const compact = try compactLeanSpecs(Spec, arena, &specs);
+    try std.testing.expectEqual(specs.len, compact.len);
+    for (compact) |s| {
+        if (std.mem.eql(u8, s.name, "subagent")) try std.testing.expectEqualStrings(lean_subagent_desc, s.desc);
+        if (std.mem.eql(u8, s.name, "bash")) try std.testing.expectEqualStrings(lean_bash_desc, s.desc);
+        if (leanCompactDesc(s.name) == null) try std.testing.expectEqualStrings("", s.desc);
+    }
+    try std.testing.expect(lean_bash_desc.len < 200);
+    try std.testing.expect(lean_attempt_completion_desc.len < 80);
+    try std.testing.expect(std.mem.indexOf(u8, lean_subagent_desc, "sidecar") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lean_subagent_desc, "critical-path") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lean_subagent_desc, "approval-denied") == null); // that fact lives on unattended_note, not here
+}
+
+test "#330: filterRootSpecs drops only the gated names, and does not allocate when the gate is off" {
+    const Spec = struct { name: []const u8 };
+    const specs = [_]Spec{
+        .{ .name = "bash" },
+        .{ .name = "webfetch" },
+        .{ .name = "read_file" },
+        .{ .name = "subagent" },
+        .{ .name = "codedb" },
+    };
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const saved = enabled;
+    defer enabled = saved;
+
+    enabled = false;
+    try std.testing.expectEqual(specs.len, (try filterRootSpecs(Spec, arena, &specs)).len);
+    try std.testing.expectEqual(@as(usize, 0), arena_state.queryCapacity());
+
+    enabled = true;
+    const gated = try filterRootSpecs(Spec, arena, &specs);
+    try std.testing.expectEqual(@as(usize, 2), gated.len);
+    try std.testing.expectEqualStrings("webfetch", gated[0].name);
+    try std.testing.expectEqualStrings("subagent", gated[1].name);
+}
+
+test "#330: neither catalog advertises a local tool under the gate, and webfetch survives in both" {
+    const schema = @import("schema.zig");
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const saved = enabled;
+    // #352: imagegen is optional, so the ungated catalog only carries every
+    // gated name while it is available — turn it on for this comparison.
+    const imagegen = @import("imagegen.zig");
+    const saved_imagegen = imagegen.available;
+    defer {
+        enabled = saved;
+        imagegen.available = saved_imagegen;
+    }
+    imagegen.available = true;
+
+    // Root catalog (runtime-assembled, and the one MCP tools are appended to).
+    enabled = false;
+    const open = try schema.effectiveRootSpecs(arena);
+    var open_local: usize = 0;
+    for (open) |spec| {
+        if (isLocalTool(spec.name)) open_local += 1;
+    }
+    try std.testing.expectEqual(gated_tools.len, open_local);
+
+    enabled = true;
+    const gated = try schema.effectiveRootSpecs(arena);
+    var kept_webfetch = false;
+    var kept_subagent = false;
+    for (gated) |spec| {
+        try std.testing.expect(!isLocalTool(spec.name));
+        if (std.mem.eql(u8, spec.name, "webfetch")) kept_webfetch = true;
+        if (std.mem.eql(u8, spec.name, "subagent")) kept_subagent = true;
+    }
+    try std.testing.expectEqual(open.len - gated_tools.len - 1, gated.len); // rlm also drops under #330
+    try std.testing.expect(kept_webfetch); // pure host HTTP: no sandbox to escape
+    try std.testing.expect(kept_subagent); // orchestration stays; the child inherits the gate
+
+    // Subagent catalogs (comptime twins), in all three wire formats.
+    for ([_][]const u8{
+        schema.tools_anthropic_sub_remote,
+        schema.tools_openai_sub_remote,
+        schema.tools_responses_sub_remote,
+    }) |catalog| {
+        inline for (gated_tools) |tool|
+            try std.testing.expect(std.mem.indexOf(u8, catalog, "\"name\":\"" ++ tool ++ "\"") == null);
+        try std.testing.expect(std.mem.indexOf(u8, catalog, "\"name\":\"webfetch\"") != null);
+    }
+    // …and the ungated twins still carry them, so the filter is what changed.
+    try std.testing.expect(std.mem.indexOf(u8, schema.tools_anthropic_sub, "\"name\":\"bash\"") != null);
+}
+
+test "#330: dispatch refuses a hallucinated bash call for the root AND for a subagent" {
+    const exec = @import("exec.zig");
+    const tools = @import("tools.zig");
+    const gpa = std.testing.allocator;
+
+    const saved = enabled;
+    defer enabled = saved;
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, gpa, "{\"command\":\"echo gate-escaped\"}", .{});
+    defer parsed.deinit();
+
+    var client: std.http.Client = undefined;
+    var ctx: tools.ToolCtx = .{
+        .gpa = gpa,
+        .io = std.testing.io,
+        .client = &client,
+        .provider = undefined,
+        .registry = null,
+        .from_sub = false,
+        .approvals = null,
+        .tracer = null,
+    };
+
+    enabled = true;
+    // from_sub=true is the child path: a subagent's tool calls run through this
+    // very dispatch, so the process-global gate reaches them with no plumbing.
+    for ([_]bool{ false, true }) |from_sub| {
+        ctx.from_sub = from_sub;
+        const out = exec.execTool(ctx, .{ .id = "call_1", .name = "bash", .input = parsed.value });
+        defer gpa.free(out.text);
+        try std.testing.expect(out.is_error);
+        try std.testing.expect(std.mem.indexOf(u8, out.text, "--no-local-tools") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out.text, "gate-escaped") == null); // never ran
+    }
+}
+
+test "lean prompt diet: no fan-out / trace / issue-filing; short local-tools note" {
+    const prompts = @import("prompts.zig");
+    const saved = lean;
+    defer lean = saved;
+    lean = true;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const out = try prompts.composeBase(arena_state.allocator(), prompts.detectCaps());
+    try std.testing.expect(std.mem.indexOf(u8, out, ".graff/traces") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "gh issue create") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "fan out") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "Parallelize") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "ONE response") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "not covered by /rewind") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "rlm") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "SPEC.md") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "edit that path") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "discard work") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "Fix root causes") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "Co-Authored-By") == null);
+}
+
+test "lean catalog drops overflow pager and empty load_tool_schemas" {
+    const schema = @import("schema.zig");
+    const saved = lean;
+    defer lean = saved;
+    lean = true;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const specs = try schema.effectiveRootSpecs(arena);
+    const json = try schema.renderRootTools(arena, .openai, specs, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, json, "read_file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "edit_file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "write_file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "read_tool_result") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"load_tool_schemas\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"rlm\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"read_file\"") != null);
+}
