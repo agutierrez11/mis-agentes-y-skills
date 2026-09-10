@@ -1,0 +1,338 @@
+"""OpenAI (GPT + Ollama via base_url) provider adapter."""
+
+from __future__ import annotations
+
+import contextlib
+import time
+from typing import TYPE_CHECKING, Any
+
+import openai
+
+from duh.core.errors import (
+    ModelNotFoundError,
+    ProviderAuthError,
+    ProviderOverloadedError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+)
+from duh.providers.base import (
+    ModelInfo,
+    ModelResponse,
+    StreamChunk,
+    TokenUsage,
+    ToolCallData,
+)
+from duh.providers.catalog import (
+    MODEL_CATALOG,
+    NO_TEMPERATURE_MODELS,
+    PROVIDER_CAPS,
+)
+from duh.providers.temperature import (
+    is_temperature_error,
+    omit_temperature,
+    record_no_temperature,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from duh.providers.base import PromptMessage
+
+PROVIDER_ID = "openai"
+_KNOWN_MODELS = MODEL_CATALOG[PROVIDER_ID]
+_DEFAULT_CAPS = PROVIDER_CAPS[PROVIDER_ID]
+_NO_TEMPERATURE_MODELS = NO_TEMPERATURE_MODELS
+_SEARCH_MODELS: set[str] = {
+    "gpt-5-search-api",
+    "gpt-4o-search-preview",
+    "gpt-4o-mini-search-preview",
+}
+
+# GPT-5.x models support reasoning_effort but don't always reason by default.
+# Dedicated reasoning models (o3, o3-mini, o4-mini) always reason at full capacity.
+_REASONING_EFFORT_MODELS: set[str] = {
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.2",
+    "gpt-5.4",
+    "gpt-5.5",
+}
+
+
+def _map_error(e: openai.APIError) -> Exception:
+    """Map OpenAI SDK errors to duh error hierarchy."""
+    if isinstance(e, openai.AuthenticationError):
+        return ProviderAuthError(PROVIDER_ID, str(e))
+    if isinstance(e, openai.RateLimitError):
+        retry_after = None
+        if hasattr(e, "response") and e.response is not None:
+            raw = e.response.headers.get("retry-after")
+            if raw is not None:
+                with contextlib.suppress(ValueError):
+                    retry_after = float(raw)
+        return ProviderRateLimitError(PROVIDER_ID, retry_after=retry_after)
+    if isinstance(e, openai.APITimeoutError):
+        return ProviderTimeoutError(PROVIDER_ID, str(e))
+    if isinstance(e, openai.InternalServerError):
+        return ProviderOverloadedError(PROVIDER_ID, str(e))
+    if isinstance(e, openai.NotFoundError):
+        return ModelNotFoundError(PROVIDER_ID, str(e))
+    # Fallback for unknown API errors
+    return ProviderOverloadedError(PROVIDER_ID, str(e))
+
+
+def _build_messages(
+    messages: list[PromptMessage],
+) -> list[dict[str, str]]:
+    """Convert PromptMessages to OpenAI chat message format.
+
+    Unlike Anthropic, OpenAI accepts system messages directly in the
+    messages array — no separate system parameter needed.
+    """
+    return [{"role": msg.role, "content": msg.content} for msg in messages]
+
+
+class OpenAIProvider:
+    """Provider adapter for OpenAI-compatible APIs.
+
+    Covers OpenAI GPT models (api.openai.com), Ollama (via base_url),
+    and any OpenAI-compatible API (LM Studio, vLLM, Azure, etc.).
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        *,
+        base_url: str | None = None,
+        client: openai.AsyncOpenAI | None = None,
+        provider_id: str = PROVIDER_ID,
+    ) -> None:
+        # provider_id lets one adapter serve any OpenAI-compatible host under a
+        # distinct id (e.g. "cloudflare" for Workers AI) so it can run alongside
+        # real OpenAI without colliding. Models/caps come from that id's catalog.
+        self._provider_id = provider_id
+        self._known_models = MODEL_CATALOG.get(provider_id, _KNOWN_MODELS)
+        self._caps = PROVIDER_CAPS.get(provider_id, _DEFAULT_CAPS)
+        if client is not None:
+            self._client = client
+        else:
+            kwargs: dict[str, Any] = {}
+            if api_key is not None:
+                kwargs["api_key"] = api_key
+            if base_url is not None:
+                kwargs["base_url"] = base_url
+                # Local endpoints don't need a real API key
+                if "api_key" not in kwargs:
+                    kwargs["api_key"] = "not-required"
+            self._client = openai.AsyncOpenAI(**kwargs)
+
+    @property
+    def provider_id(self) -> str:
+        return self._provider_id
+
+    async def list_models(self) -> list[ModelInfo]:
+        return [
+            ModelInfo(
+                provider_id=self._provider_id,
+                model_id=m["model_id"],
+                display_name=m["display_name"],
+                capabilities=self._caps,
+                context_window=m["context_window"],
+                max_output_tokens=m["max_output_tokens"],
+                input_cost_per_mtok=m["input_cost_per_mtok"],
+                output_cost_per_mtok=m["output_cost_per_mtok"],
+            )
+            for m in self._known_models
+        ]
+
+    async def send(
+        self,
+        messages: list[PromptMessage],
+        model_id: str,
+        *,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        stop_sequences: list[str] | None = None,
+        response_format: str | None = None,
+        tools: list[dict[str, object]] | None = None,
+        web_search: bool = False,
+    ) -> ModelResponse:
+        api_messages = _build_messages(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": model_id,
+            "max_completion_tokens": max_tokens,
+            "messages": api_messages,
+        }
+        if not omit_temperature(model_id, _NO_TEMPERATURE_MODELS):
+            kwargs["temperature"] = temperature
+        if stop_sequences:
+            kwargs["stop"] = stop_sequences
+        if response_format == "json":
+            kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("parameters") or t.get("input_schema", {}),
+                    },
+                }
+                for t in tools
+            ]
+        else:
+            # reasoning_effort is incompatible with function tools on
+            # /v1/chat/completions for gpt-5.x models.
+            if model_id in _REASONING_EFFORT_MODELS:
+                kwargs["reasoning_effort"] = "high"
+        if web_search and model_id in _SEARCH_MODELS:
+            kwargs["web_search_options"] = {}
+
+        start = time.monotonic()
+        try:
+            response = await self._client.chat.completions.create(**kwargs)
+        except openai.APIError as e:
+            # Self-heal: a model that newly rejects temperature -> record it and
+            # retry once without it (handles models not yet in the catalog set).
+            if (
+                isinstance(e, openai.BadRequestError)
+                and "temperature" in kwargs
+                and is_temperature_error(e)
+            ):
+                record_no_temperature(model_id)
+                kwargs.pop("temperature", None)
+                try:
+                    response = await self._client.chat.completions.create(**kwargs)
+                except openai.APIError as retry_exc:
+                    raise _map_error(retry_exc) from retry_exc
+            else:
+                raise _map_error(e) from e
+
+        latency_ms = (time.monotonic() - start) * 1000
+
+        tool_calls_data: list[ToolCallData] | None = None
+        if response.choices:
+            content = response.choices[0].message.content or ""
+            finish_reason = response.choices[0].finish_reason or "stop"
+            # Parse tool calls from response
+            msg_tool_calls = response.choices[0].message.tool_calls
+            if msg_tool_calls:
+                tool_calls_data = [
+                    ToolCallData(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=tc.function.arguments,
+                    )
+                    for tc in msg_tool_calls
+                ]
+        else:
+            content = ""
+            finish_reason = "stop"
+
+        if response.usage:
+            usage = TokenUsage(
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+            )
+        else:
+            usage = TokenUsage(input_tokens=0, output_tokens=0)
+
+        model_info = self._resolve_model_info(model_id)
+
+        return ModelResponse(
+            content=content,
+            model_info=model_info,
+            usage=usage,
+            finish_reason=finish_reason,
+            latency_ms=latency_ms,
+            raw_response=response,
+            tool_calls=tool_calls_data,
+        )
+
+    async def stream(
+        self,
+        messages: list[PromptMessage],
+        model_id: str,
+        *,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        stop_sequences: list[str] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        api_messages = _build_messages(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": model_id,
+            "max_completion_tokens": max_tokens,
+            "messages": api_messages,
+            "stream_options": {"include_usage": True},
+        }
+        if not omit_temperature(model_id, _NO_TEMPERATURE_MODELS):
+            kwargs["temperature"] = temperature
+        if model_id in _REASONING_EFFORT_MODELS:
+            kwargs["reasoning_effort"] = "high"
+        if stop_sequences:
+            kwargs["stop"] = stop_sequences
+
+        try:
+            response = await self._client.chat.completions.create(
+                stream=True,
+                **kwargs,
+            )
+            usage = None
+            async for chunk in response:
+                # Usage arrives in the final chunk (choices empty)
+                if chunk.usage is not None:
+                    usage = TokenUsage(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                    )
+
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield StreamChunk(
+                        text=chunk.choices[0].delta.content,
+                    )
+
+            yield StreamChunk(text="", is_final=True, usage=usage)
+
+        except openai.APIError as e:
+            raise _map_error(e) from e
+
+    async def health_check(self) -> bool:
+        try:
+            await self._client.chat.completions.create(
+                model="gpt-5-mini",
+                max_completion_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+        except Exception:
+            return False
+        return True
+
+    def _resolve_model_info(self, model_id: str) -> ModelInfo:
+        """Look up ModelInfo for a model_id, or create a generic one."""
+        for m in self._known_models:
+            if m["model_id"] == model_id:
+                return ModelInfo(
+                    provider_id=self._provider_id,
+                    model_id=model_id,
+                    display_name=m["display_name"],
+                    capabilities=self._caps,
+                    context_window=m["context_window"],
+                    max_output_tokens=m["max_output_tokens"],
+                    input_cost_per_mtok=m["input_cost_per_mtok"],
+                    output_cost_per_mtok=m["output_cost_per_mtok"],
+                )
+        # Unknown model — return generic info
+        return ModelInfo(
+            provider_id=self._provider_id,
+            model_id=model_id,
+            display_name=f"{self._provider_id} ({model_id})",
+            capabilities=self._caps,
+            context_window=200_000,
+            max_output_tokens=4096,
+            input_cost_per_mtok=0.0,
+            output_cost_per_mtok=0.0,
+        )

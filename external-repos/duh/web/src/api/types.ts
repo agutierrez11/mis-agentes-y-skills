@@ -1,0 +1,348 @@
+// ── Auth types ────────────────────────────────────────────
+
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
+export interface RegisterRequest {
+  email: string
+  password: string
+  display_name: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user_id: string
+  role: string
+}
+
+export interface UserInfo {
+  id: string
+  email: string
+  display_name: string
+  role: string
+  is_active: boolean
+}
+
+export interface AuthStatusResponse {
+  auth_required: boolean
+}
+
+export interface ForgotPasswordRequest {
+  email: string
+}
+
+export interface ForgotPasswordResponse {
+  message: string
+}
+
+export interface ResetPasswordRequest {
+  token: string
+  new_password: string
+}
+
+export interface ResetPasswordResponse {
+  message: string
+}
+
+// ── Refinement types ──────────────────────────────────────
+
+export interface ClarifyingQuestion {
+  question: string
+  hint?: string | null
+}
+
+export interface RefineResponse {
+  needs_refinement: boolean
+  questions: ClarifyingQuestion[]
+}
+
+export interface EnrichResponse {
+  enriched_question: string
+}
+
+// ── Request types ─────────────────────────────────────────
+
+export interface AskRequest {
+  question: string
+  protocol?: 'consensus' | 'voting' | 'auto'
+  rounds?: number
+  decompose?: boolean
+  tools?: boolean
+}
+
+export interface FeedbackRequest {
+  thread_id: string
+  result: 'success' | 'failure' | 'partial'
+  notes?: string | null
+}
+
+// ── Response types ────────────────────────────────────────
+
+export interface Usage {
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+}
+
+export interface AskResponse {
+  decision: string
+  confidence: number
+  rigor: number
+  dissent: string | null
+  cost: number
+  usage?: Usage | null
+  thread_id: string | null
+  protocol_used: string
+}
+
+export interface ThreadSummary {
+  thread_id: string
+  question: string
+  status: string
+  created_at: string
+  has_outcome?: boolean
+  outcome?: string | null
+}
+
+export interface ThreadListResponse {
+  threads: ThreadSummary[]
+  total: number
+}
+
+export interface Contribution {
+  model_ref: string
+  role: string
+  content: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  citations?: Citation[] | null
+}
+
+export interface Decision {
+  content: string
+  confidence: number
+  rigor: number
+  dissent: string | null
+}
+
+export interface Turn {
+  round_number: number
+  state: string
+  contributions: Contribution[]
+  decision: Decision | null
+}
+
+export interface ThreadDetail {
+  thread_id: string
+  question: string
+  status: string
+  created_at: string
+  overview?: string | null
+  turns: Turn[]
+  followups?: string[]
+  usage?: Usage | null
+}
+
+export interface RecallResult {
+  thread_id: string
+  question: string
+  decision: string | null
+  confidence: number | null
+}
+
+export interface RecallResponse {
+  results: RecallResult[]
+  query: string
+}
+
+export interface FeedbackResponse {
+  status: string
+  thread_id: string
+}
+
+export interface ModelInfo {
+  provider_id: string
+  model_id: string
+  display_name: string
+  context_window: number
+  max_output_tokens: number
+  input_cost_per_mtok: number
+  output_cost_per_mtok: number
+  proposer_eligible: boolean
+}
+
+export interface ModelSelectionOptions {
+  panel?: string[]
+  proposer?: string
+  challengers?: string[]
+}
+
+export interface ModelsResponse {
+  models: ModelInfo[]
+  total: number
+}
+
+export interface CostByModel {
+  model_ref: string
+  cost: number
+  calls: number
+}
+
+export interface CostResponse {
+  total_cost: number
+  total_input_tokens: number
+  total_output_tokens: number
+  by_model: CostByModel[]
+}
+
+export interface HealthResponse {
+  status: string
+}
+
+// ── Decision Space types ──────────────────────────────────
+
+export interface SpaceDecision {
+  id: string
+  thread_id: string
+  question: string
+  confidence: number
+  rigor: number
+  intent: string | null
+  category: string | null
+  genus: string | null
+  outcome: string | null
+  created_at: string
+}
+
+export interface SpaceAxisMeta {
+  categories: string[]
+  genera: string[]
+}
+
+export interface DecisionSpaceResponse {
+  decisions: SpaceDecision[]
+  axes: SpaceAxisMeta
+  total: number
+}
+
+// ── Calibration types ────────────────────────────────────
+
+export interface CalibrationBucket {
+  range_lo: number
+  range_hi: number
+  count: number
+  with_outcomes: number
+  success: number
+  failure: number
+  partial: number
+  accuracy: number
+  mean_confidence: number
+}
+
+export interface CalibrationResponse {
+  buckets: CalibrationBucket[]
+  total_decisions: number
+  total_with_outcomes: number
+  overall_accuracy: number
+  ece: number
+}
+
+// ── Citation types ────────────────────────────────────────
+
+export interface Citation {
+  url: string
+  title?: string | null
+}
+
+// ── WebSocket event types ─────────────────────────────────
+
+export type WSEventType =
+  | 'phase_start'
+  | 'phase_complete'
+  | 'challenge'
+  | 'challenge_error'
+  | 'commit'
+  | 'complete'
+  | 'error'
+
+export type ConsensusPhase = 'PROPOSE' | 'CHALLENGE' | 'REVISE' | 'COMMIT'
+
+export interface WSPhaseStart {
+  type: 'phase_start'
+  phase: ConsensusPhase
+  model?: string
+  models?: string[]
+  round: number
+}
+
+export interface WSPhaseComplete {
+  type: 'phase_complete'
+  phase: ConsensusPhase
+  content?: string
+  truncated?: boolean
+  citations?: Citation[] | null
+}
+
+export interface WSChallenge {
+  type: 'challenge'
+  model: string
+  content: string
+  truncated?: boolean
+  citations?: Citation[] | null
+}
+
+export interface WSCommit {
+  type: 'commit'
+  confidence: number
+  rigor: number
+  dissent: string | null
+  round: number
+}
+
+export interface WSComplete {
+  type: 'complete'
+  decision: string
+  confidence: number
+  rigor: number
+  dissent: string | null
+  cost: number
+  usage?: Usage | null
+  thread_id: string | null
+  overview: string | null
+  followups: string[] | null
+}
+
+export interface WSChallengeError {
+  type: 'challenge_error'
+  model: string
+}
+
+export interface WSError {
+  type: 'error'
+  message: string
+}
+
+export type WSEvent =
+  | WSPhaseStart
+  | WSPhaseComplete
+  | WSChallenge
+  | WSChallengeError
+  | WSCommit
+  | WSComplete
+  | WSError
+
+// ── API Error ─────────────────────────────────────────────
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public detail: string,
+  ) {
+    super(detail)
+    this.name = 'ApiError'
+  }
+}

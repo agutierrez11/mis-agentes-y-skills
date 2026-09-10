@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Phase 0 results
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Database
+*.db
+*.db-journal
+
+# MkDocs
+site/
+
+# Memory bank setup
+memory-bank/setup.md
+
+# Web UI
+web/node_modules/
+web/dist/
+
+# npm wrapper
+npm/like-duh/node_modules/
+
+
+# TypeScript incremental build info
+web/tsconfig.tsbuildinfo

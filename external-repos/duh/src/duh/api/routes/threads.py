@@ -1,0 +1,330 @@
+"""GET /api/threads — list, detail, and export endpoints."""
+
+from __future__ import annotations
+
+import io
+import json
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+router = APIRouter(prefix="/api", tags=["threads"])
+
+
+class CitationResponse(BaseModel):
+    url: str
+    title: str | None = None
+
+
+class ContributionResponse(BaseModel):
+    model_ref: str
+    role: str
+    content: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    citations: list[CitationResponse] | None = None
+
+
+class DecisionResponse(BaseModel):
+    content: str
+    confidence: float
+    rigor: float = 0.0
+    dissent: str | None = None
+
+
+class TurnResponse(BaseModel):
+    round_number: int
+    state: str
+    contributions: list[ContributionResponse] = Field(default_factory=list)
+    decision: DecisionResponse | None = None
+
+
+class UsageSummary(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+class ThreadSummaryResponse(BaseModel):
+    thread_id: str
+    question: str
+    status: str
+    created_at: str
+    has_outcome: bool = False
+    outcome: str | None = None
+
+
+class ThreadDetailResponse(BaseModel):
+    thread_id: str
+    question: str
+    status: str
+    created_at: str
+    overview: str | None = None
+    turns: list[TurnResponse] = Field(default_factory=list)
+    followups: list[str] = Field(default_factory=list)
+    usage: UsageSummary = UsageSummary()
+
+
+class ThreadListResponse(BaseModel):
+    threads: list[ThreadSummaryResponse]
+    total: int
+
+
+@router.get("/threads", response_model=ThreadListResponse)
+async def list_threads(
+    request: Request,
+    status: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> ThreadListResponse:
+    """List past consensus threads."""
+    from duh.memory.repository import MemoryRepository
+
+    db_factory = request.app.state.db_factory
+    async with db_factory() as session:
+        repo = MemoryRepository(session)
+        threads = await repo.list_threads(status=status, limit=limit, offset=offset)
+        results = []
+        for t in threads:
+            outcomes = await repo.get_outcomes_for_thread(t.id)
+            has_outcome = len(outcomes) > 0
+            outcome_val = outcomes[-1].result if outcomes else None
+            results.append(
+                ThreadSummaryResponse(
+                    thread_id=t.id,
+                    question=t.question,
+                    status=t.status,
+                    created_at=t.created_at.isoformat(),
+                    has_outcome=has_outcome,
+                    outcome=outcome_val,
+                )
+            )
+    return ThreadListResponse(threads=results, total=len(results))
+
+
+@router.get("/threads/{thread_id}", response_model=ThreadDetailResponse)
+async def get_thread(thread_id: str, request: Request) -> ThreadDetailResponse:
+    """Get thread with full debate history."""
+    from duh.memory.repository import MemoryRepository
+
+    db_factory = request.app.state.db_factory
+    async with db_factory() as session:
+        repo = MemoryRepository(session)
+
+        # Support prefix matching
+        if len(thread_id) < 36:
+            all_threads = await repo.list_threads(limit=100)
+            matches = [t for t in all_threads if t.id.startswith(thread_id)]
+            if not matches:
+                raise HTTPException(
+                    status_code=404, detail=f"Thread not found: {thread_id}"
+                )
+            if len(matches) > 1:
+                raise HTTPException(
+                    status_code=400, detail=f"Ambiguous prefix: {thread_id}"
+                )
+            thread_id = matches[0].id
+
+        thread = await repo.get_thread(thread_id)
+
+    if thread is None:
+        raise HTTPException(status_code=404, detail=f"Thread not found: {thread_id}")
+
+    return _build_thread_detail(thread)
+
+
+@router.get("/share/{share_token}", response_model=ThreadDetailResponse)
+async def get_shared_thread(share_token: str, request: Request) -> ThreadDetailResponse:
+    """Get a shared thread (no auth required). Token is the thread ID."""
+    from duh.memory.repository import MemoryRepository
+
+    db_factory = request.app.state.db_factory
+    async with db_factory() as session:
+        repo = MemoryRepository(session)
+        thread = await repo.get_thread(share_token)
+
+    if thread is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Shared thread not found: {share_token}",
+        )
+
+    return _build_thread_detail(thread)
+
+
+def _parse_citations(raw: str | None) -> list[CitationResponse] | None:
+    """Parse JSON-encoded citations from a contribution."""
+    if not raw:
+        return None
+    try:
+        items = json.loads(raw)
+        return [CitationResponse(url=c["url"], title=c.get("title")) for c in items]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
+def _build_thread_detail(thread: object) -> ThreadDetailResponse:
+    """Build a ThreadDetailResponse from a Thread ORM object."""
+    turns = []
+    for turn in thread.turns:  # type: ignore[attr-defined]
+        contribs = [
+            ContributionResponse(
+                model_ref=c.model_ref,
+                role=c.role,
+                content=c.content,
+                input_tokens=c.input_tokens,
+                output_tokens=c.output_tokens,
+                cost_usd=c.cost_usd,
+                citations=_parse_citations(getattr(c, "citations_json", None)),
+            )
+            for c in turn.contributions
+        ]
+        dec = None
+        if turn.decision:
+            dec = DecisionResponse(
+                content=turn.decision.content,
+                confidence=turn.decision.confidence,
+                rigor=turn.decision.rigor,
+                dissent=turn.decision.dissent,
+            )
+        turns.append(
+            TurnResponse(
+                round_number=turn.round_number,
+                state=turn.state,
+                contributions=contribs,
+                decision=dec,
+            )
+        )
+
+    # Parse followups from JSON
+    followups_raw = getattr(thread, "followups_json", None)
+    followups: list[str] = []
+    if followups_raw:
+        import contextlib
+        import json as _json
+
+        with contextlib.suppress(ValueError, TypeError):
+            followups = _json.loads(followups_raw)
+
+    # Prefer the run-level usage total recorded at persist time; fall back to
+    # aggregating per-contribution counts for threads saved before usage_json.
+    total_in = sum(
+        c.input_tokens
+        for turn in thread.turns  # type: ignore[attr-defined]
+        for c in turn.contributions
+    )
+    total_out = sum(
+        c.output_tokens
+        for turn in thread.turns  # type: ignore[attr-defined]
+        for c in turn.contributions
+    )
+    total_cost: float = sum(
+        c.cost_usd
+        for turn in thread.turns  # type: ignore[attr-defined]
+        for c in turn.contributions
+    )
+
+    usage_raw = getattr(thread, "usage_json", None)
+    if usage_raw:
+        import contextlib
+        import json as _json
+
+        with contextlib.suppress(ValueError, TypeError):
+            stored = _json.loads(usage_raw)
+            total_in = int(stored.get("input_tokens", total_in))
+            total_out = int(stored.get("output_tokens", total_out))
+            total_cost = float(stored.get("cost_usd", total_cost))
+
+    summary = getattr(thread, "summary", None)
+    overview = summary.summary if summary else None
+
+    return ThreadDetailResponse(
+        thread_id=thread.id,  # type: ignore[attr-defined]
+        question=thread.question,  # type: ignore[attr-defined]
+        status=thread.status,  # type: ignore[attr-defined]
+        created_at=thread.created_at.isoformat(),  # type: ignore[attr-defined]
+        overview=overview,
+        turns=turns,
+        followups=followups,
+        usage=UsageSummary(
+            input_tokens=total_in,
+            output_tokens=total_out,
+            cost_usd=total_cost,
+        ),
+    )
+
+
+@router.get("/threads/{thread_id}/export")
+async def export_thread(
+    thread_id: str,
+    request: Request,
+    format: str = Query(default="pdf"),
+    content: str = Query(default="full"),
+    dissent: bool = Query(default=True),
+) -> StreamingResponse:
+    """Export a thread as PDF or markdown."""
+    from duh.cli.app import _format_thread_markdown, _format_thread_pdf
+    from duh.memory.repository import MemoryRepository
+
+    db_factory = request.app.state.db_factory
+    async with db_factory() as session:
+        repo = MemoryRepository(session)
+
+        # Support prefix matching
+        if len(thread_id) < 36:
+            all_threads = await repo.list_threads(limit=100)
+            matches = [t for t in all_threads if t.id.startswith(thread_id)]
+            if not matches:
+                raise HTTPException(
+                    status_code=404, detail=f"Thread not found: {thread_id}"
+                )
+            if len(matches) > 1:
+                raise HTTPException(
+                    status_code=400, detail=f"Ambiguous prefix: {thread_id}"
+                )
+            thread_id = matches[0].id
+
+        thread = await repo.get_thread(thread_id)
+        if thread is None:
+            raise HTTPException(
+                status_code=404, detail=f"Thread not found: {thread_id}"
+            )
+        votes = await repo.get_votes(thread_id)
+
+    short_id = thread_id[:8]
+    overview_text = thread.summary.summary if thread.summary else None
+
+    if format == "pdf":
+        pdf_bytes = _format_thread_pdf(
+            thread,
+            votes,
+            content=content,
+            include_dissent=dissent,
+            overview=overview_text,
+        )
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=consensus-{short_id}.pdf"
+                )
+            },
+        )
+
+    md_text = _format_thread_markdown(
+        thread,
+        votes,
+        content=content,
+        include_dissent=dissent,
+        overview=overview_text,
+    )
+    return StreamingResponse(
+        io.BytesIO(md_text.encode()),
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": (f"attachment; filename=consensus-{short_id}.md")
+        },
+    )
